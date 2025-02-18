@@ -13,7 +13,6 @@ import java.time.format.DateTimeFormatter;
 
 public class RandomDDLGenerator {
     private static final Random random = new Random();
-    private static final String LOG_FILE = "rand_ddl.log";
     private List<String> tableNames = new ArrayList<>();
     
     public RandomDDLGenerator() {
@@ -32,47 +31,17 @@ public class RandomDDLGenerator {
             ResultSet rs = meta.getTables(database, null, null, new String[]{"TABLE"});
             
             while (rs.next()) {
-                tableNames.add(rs.getString("TABLE_NAME"));
-            }
-            
-            if (tableNames.isEmpty()) {
-                System.err.println("Warning: No tables found in database " + database);
-                tableNames.add("table1");
-                tableNames.add("table2");
+                tableNames.add(rs.getString(String.format("Tables_in_%s", database)));
             }
         } catch (SQLException e) {
             System.err.println("Error loading table names: " + e.getMessage());
             tableNames.clear();
-            tableNames.add("table1");
-            tableNames.add("table2");
         }
     }
 
     private String generateTableName() {
+        loadTableNames();
         return tableNames.get(random.nextInt(tableNames.size()));
-    }
-
-    public static void main(String[] args) {
-        RandomDDLGenerator generator = new RandomDDLGenerator();
-        while(true) {
-            String ddl = generator.generateDDL();
-            if (ddl == "") {
-                continue;
-            }
-            System.out.println(ddl);
-
-            // Log to file
-            try (PrintWriter writer = new PrintWriter(new FileWriter(LOG_FILE, true))) {
-                String timestamp = LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
-                writer.println("=== " + timestamp + " ===");
-                writer.println("Generated DDL:");
-                writer.println(ddl);
-                writer.println(); // Empty line for readability
-                writer.flush();
-            } catch (IOException e) {
-                System.err.println("Error writing to log file: " + e.getMessage());
-            }
-        }
     }
 
     public String generateDDL() {

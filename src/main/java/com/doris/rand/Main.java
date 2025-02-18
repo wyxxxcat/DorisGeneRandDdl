@@ -1,34 +1,51 @@
 package com.doris.rand;
 
 import com.doris.rand.generator.RandomDDLGenerator;
-import com.doris.rand.executor.MySQLExecutor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 
 public class Main {
     private static final Logger logger = LoggerFactory.getLogger(Main.class);
+    private static final String LOG_FILE = "rand_ddl.log";
 
     public static void main(String[] args) {
+        RandomDDLGenerator generator = new RandomDDLGenerator();
 
-        String host = "127.0.0.1";
-        int port = 9330;
-        String username = "root";
-        String password = "";
-        String database = "db";
-
-        try {
-            RandomDDLGenerator generator = new RandomDDLGenerator();
-            MySQLExecutor executor = new MySQLExecutor(host, port, username, password, database);
-
-            // Generate and execute 10 random DDL statements
-            for (int i = 0; i < 10; i++) {
+        while(true) {
+            try {
                 String ddl = generator.generateDDL();
-                executor.executeDDL(ddl);
-                Thread.sleep(1000); // Wait 1 second between executions
+                if (ddl.isEmpty()) {
+                    continue;
+                }
+                
+                System.out.println(ddl);
+
+                logDDL(ddl);
+
+                Thread.sleep(1000);
+
+            } catch (Exception e) {
+                logger.error("Error in DDL generation/logging", e);
+                System.exit(1);
             }
-        } catch (Exception e) {
-            logger.error("Error executing DDL statements", e);
-            System.exit(1);
+        }
+    }
+
+    private static void logDDL(String ddl) {
+        try (PrintWriter writer = new PrintWriter(new FileWriter(LOG_FILE, true))) {
+            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+            writer.println("=== " + timestamp + " ===");
+            writer.println("Generated DDL:");
+            writer.println(ddl);
+            writer.println();
+            writer.flush();
+        } catch (IOException e) {
+            logger.error("Error writing to log file: " + e.getMessage());
         }
     }
 }
