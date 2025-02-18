@@ -16,8 +16,12 @@ public class DBConfig {
         }
     }
 
-    public static String getUrl() {
-        return props.getProperty("db.url");
+    public static String getHost() {
+        return props.getProperty("db.host");
+    }
+
+    public static String getPort() {
+        return props.getProperty("db.port");
     }
 
     public static String getUser() {

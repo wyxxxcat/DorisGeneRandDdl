@@ -19,19 +19,24 @@ public class RandomDDLGenerator {
         loadTableNames();
     }
 
-    public void loadTableNames() {  // Changed from private to public
-        tableNames.clear();  // Clear existing table names before reloading
-        String url = DBConfig.getUrl();
+    public void loadTableNames() {
+        tableNames.clear();
+        String host = DBConfig.getHost();
+        String port = DBConfig.getPort();
         String user = DBConfig.getUser();
         String password = DBConfig.getPassword();
         String database = DBConfig.getDatabase();
+        String url = String.format("jdbc:mysql://%s:%s/%s", host, port, database);
 
         try (Connection conn = DriverManager.getConnection(url, user, password)) {
-            DatabaseMetaData meta = conn.getMetaData();
-            ResultSet rs = meta.getTables(database, null, null, new String[]{"TABLE"});
-            
-            while (rs.next()) {
-                tableNames.add(rs.getString(String.format("Tables_in_%s", database)));
+            String sql = "SHOW TABLES FROM " + database;
+            try (Statement stmt = conn.createStatement();
+                 ResultSet rs = stmt.executeQuery(sql)) {
+                
+                while (rs.next()) {
+                    // The column name for SHOW TABLES result is "Tables_in_<database>"
+                    tableNames.add(rs.getString(1));
+                }
             }
         } catch (SQLException e) {
             System.err.println("Error loading table names: " + e.getMessage());
@@ -45,10 +50,9 @@ public class RandomDDLGenerator {
     }
 
     public String generateDDL() {
-        // Reload table names before generating DDL
         loadTableNames();
         
-        int choice = random.nextInt(7);  // Increased to include modify column
+        int choice = random.nextInt(7); 
         switch (choice) {
             case 0:
                 return generateAddColumn();
@@ -72,7 +76,7 @@ public class RandomDDLGenerator {
     private String generateAddColumn() {
         StringBuilder sb = new StringBuilder();
         sb.append("ALTER TABLE ");
-        sb.append(generateTableName());  // Changed from generateIdentifier()
+        sb.append(generateTableName()); 
         sb.append(" ADD COLUMN ");
         sb.append(generateColumnDefinition());
         sb.append(";");
@@ -82,9 +86,9 @@ public class RandomDDLGenerator {
     private String generateDropColumn() {
         StringBuilder sb = new StringBuilder();
         sb.append("ALTER TABLE ");
-        sb.append(generateTableName());  // Changed from generateIdentifier()
+        sb.append(generateTableName());  
         sb.append(" DROP COLUMN ");
-        sb.append(generateIdentifier());
+        sb.append(generateColIdentifier());
         sb.append(";");
         return sb.toString();
     }
@@ -92,7 +96,7 @@ public class RandomDDLGenerator {
     private String generateAddPartition() {
         StringBuilder sb = new StringBuilder();
         sb.append("ALTER TABLE ");
-        sb.append(generateTableName());  // Changed from generateIdentifier()
+        sb.append(generateTableName()); 
         sb.append(" ADD PARTITION ");
         sb.append(generatePartitionDefinition());
         sb.append(";");
@@ -102,9 +106,9 @@ public class RandomDDLGenerator {
     private String generateDropPartition() {
         StringBuilder sb = new StringBuilder();
         sb.append("ALTER TABLE ");
-        sb.append(generateTableName());  // Changed from generateIdentifier()
+        sb.append(generateTableName());  
         sb.append(" DROP PARTITION ");
-        sb.append(generateIdentifier());
+        sb.append(generateColIdentifier());
         sb.append(";");
         return sb.toString();
     }
@@ -112,33 +116,30 @@ public class RandomDDLGenerator {
     private String generateAddRollup() {
         StringBuilder sb = new StringBuilder();
         sb.append("ALTER TABLE ");
-        sb.append(generateTableName());  // Changed from generateIdentifier()
+        sb.append(generateTableName());  
         sb.append(" ADD ROLLUP ");
-        sb.append(generateIdentifier());   // rollup name
+        sb.append(generateColIdentifier());   
         sb.append(" (");
-        // Generate rollup columns (subset of base table columns)
         int numColumns = random.nextInt(3) + 1;
         for (int i = 0; i < numColumns; i++) {
             if (i > 0) {
                 sb.append(", ");
             }
-            sb.append(generateIdentifier());  // column name
+            sb.append(generateColIdentifier());  
         }
         sb.append(")");
         
-        // Optionally add duplicate key
         if (random.nextBoolean()) {
             sb.append(" DUPLICATE KEY(");
-            sb.append(generateIdentifier());
+            sb.append(generateColIdentifier());
             sb.append(")");
         }
         
-        // Optionally add properties
-        if (random.nextBoolean()) {
-            sb.append(" PROPERTIES (");
-            sb.append("'replication_num' = '").append(random.nextInt(3) + 1).append("'");
-            sb.append(")");
-        }
+        // if (random.nextBoolean()) {
+        //     sb.append(" PROPERTIES (");
+        //     sb.append("'replication_num' = '").append(random.nextInt(3) + 1).append("'");
+        //     sb.append(")");
+        // }
         
         sb.append(";");
         return sb.toString();
@@ -147,9 +148,9 @@ public class RandomDDLGenerator {
     private String generateDropRollup() {
         StringBuilder sb = new StringBuilder();
         sb.append("ALTER TABLE ");
-        sb.append(generateTableName());  // Changed from generateIdentifier()
+        sb.append(generateTableName());  
         sb.append(" DROP ROLLUP ");
-        sb.append(generateIdentifier());  // rollup name
+        sb.append(generateColIdentifier());
         sb.append(";");
         return sb.toString();
     }
@@ -157,7 +158,7 @@ public class RandomDDLGenerator {
     private String generateModifyColumn() {
         StringBuilder sb = new StringBuilder();
         sb.append("ALTER TABLE ");
-        sb.append(generateTableName());  // Changed from generateIdentifier()
+        sb.append(generateTableName());  
         sb.append(" MODIFY COLUMN ");
         sb.append(generateModifyColumnDefinition());
         sb.append(";");
@@ -166,17 +167,14 @@ public class RandomDDLGenerator {
 
     private String generateModifyColumnDefinition() {
         StringBuilder sb = new StringBuilder();
-        sb.append(generateIdentifier());  // column name
+        sb.append(generateColIdentifier()); 
         sb.append(" ");
         sb.append(generateDataType());
 
-        // Optional: Add column attributes
-        // 1. Nullable
         if (random.nextBoolean()) {
             sb.append(random.nextBoolean() ? " NULL" : " NOT NULL");
         }
 
-        // 2. Default value
         if (random.nextBoolean()) {
             sb.append(" DEFAULT ");
             String dataType = generateDataType();
@@ -191,19 +189,16 @@ public class RandomDDLGenerator {
             }
         }
 
-        // 3. Comment
         if (random.nextBoolean()) {
             sb.append(" COMMENT '");
             sb.append("Modified column comment");
             sb.append("'");
         }
 
-        // 4. Column position
         if (random.nextBoolean()) {
-            sb.append(random.nextBoolean() ? " FIRST" : " AFTER " + generateIdentifier());
+            sb.append(random.nextBoolean() ? " FIRST" : " AFTER " + generateColIdentifier());
         }
 
-        // 5. Key attributes
         if (random.nextBoolean()) {
             String[] keyTypes = {"KEY", "UNIQUE KEY"};
             sb.append(" ").append(keyTypes[random.nextInt(keyTypes.length)]);
@@ -212,21 +207,10 @@ public class RandomDDLGenerator {
         return sb.toString();
     }
 
-    private String generateColumnDefinitions() {
-        int numColumns = random.nextInt(5) + 1; // Generate between 1 and 5 columns
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < numColumns; i++) {
-            if (i > 0) {
-                sb.append(", ");
-            }
-            sb.append(generateColumnDefinition());
-        }
-        return sb.toString();
-    }
 
     private String generateColumnDefinition() {
         StringBuilder sb = new StringBuilder();
-        sb.append(generateIdentifier());
+        sb.append(generateColIdentifier());
         sb.append(" ");
         sb.append(generateDataType());
         return sb.toString();
@@ -236,7 +220,6 @@ public class RandomDDLGenerator {
         StringBuilder sb = new StringBuilder();
         String[] partitionTypes = {"RANGE", "LIST"};
         String partitionType = partitionTypes[random.nextInt(partitionTypes.length)];
-        sb.append(" PARTITION BY ").append(partitionType).append(" (").append(generateIdentifier()).append(") (");
         if (partitionType.equals("RANGE")) {
             sb.append(generateRangePartition());
         } else {
@@ -248,31 +231,22 @@ public class RandomDDLGenerator {
 
     private String generateRangePartition() {
         StringBuilder sb = new StringBuilder();
-        int numPartitions = random.nextInt(3) + 1; // Generate between 1 and 3 partitions
-        for (int i = 0; i < numPartitions; i++) {
-            if (i > 0) {
-                sb.append(", ");
-            }
-            sb.append("PARTITION ").append(generateIdentifier()).append(" VALUES LESS THAN (").append(random.nextInt(100)).append(")");
-        }
+        sb.append("PARTITION ").append(generatePartitionIdentifier()).append(" VALUES LESS THAN (").append(random.nextInt(100)).append(")");
         return sb.toString();
     }
 
     private String generateListPartition() {
         StringBuilder sb = new StringBuilder();
-        int numPartitions = random.nextInt(3) + 1; // Generate between 1 and 3 partitions
-        for (int i = 0; i < numPartitions; i++) {
-            if (i > 0) {
-                sb.append(", ");
-            }
-            sb.append("PARTITION ").append(generateIdentifier()).append(" VALUES IN (").append(random.nextInt(100)).append(")");
-        }
+        sb.append("PARTITION ").append(generatePartitionIdentifier()).append(" VALUES IN (").append(random.nextInt(100)).append(")");
         return sb.toString();
     }
 
-    private String generateIdentifier() {
-        String[] identifiers = {"col1", "col2", "col3", "table1", "table2", "part1", "part2"};
-        return identifiers[random.nextInt(identifiers.length)];
+    private String generatePartitionIdentifier() {
+        return String.format("part_%d", random.nextInt(1000) + 1);
+    }
+
+    private String generateColIdentifier() {
+        return String.format("col_%d", random.nextInt(1000) + 1);
     }
 
     private String generateDataType() {

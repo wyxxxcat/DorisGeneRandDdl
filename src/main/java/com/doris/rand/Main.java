@@ -1,5 +1,7 @@
 package com.doris.rand;
 
+import com.doris.rand.config.DBConfig;
+import com.doris.rand.executor.MySQLExecutor;
 import com.doris.rand.generator.RandomDDLGenerator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,14 +17,14 @@ public class Main {
 
     public static void main(String[] args) {
         RandomDDLGenerator generator = new RandomDDLGenerator();
-
+        MySQLExecutor executor = new MySQLExecutor(DBConfig.getHost(), DBConfig.getPort(), DBConfig.getUser(), DBConfig.getPassword(), DBConfig.getDatabase());
         while(true) {
             try {
                 String ddl = generator.generateDDL();
                 if (ddl.isEmpty()) {
                     continue;
                 }
-                
+                executor.executeDDL(ddl);
                 System.out.println(ddl);
 
                 logDDL(ddl);
