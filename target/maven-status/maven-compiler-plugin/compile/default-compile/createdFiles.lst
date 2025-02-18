@@ -1,0 +1,4 @@
+com/doris/rand/generator/RandomDDLGenerator.class
+com/doris/rand/config/DBConfig.class
+com/doris/rand/Main.class
+com/doris/rand/executor/MySQLExecutor.class
