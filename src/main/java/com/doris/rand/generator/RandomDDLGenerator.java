@@ -1,6 +1,8 @@
 package com.doris.rand.generator;
 
 import com.doris.rand.config.DBConfig;
+import com.mysql.cj.xdevapi.Table;
+
 import java.sql.*;
 import java.text.NumberFormat.Style;
 import java.util.ArrayList;
@@ -9,11 +11,20 @@ import java.util.Random;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.nio.file.OpenOption;
+import java.security.cert.PKIXRevocationChecker.Option;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Stream;
+
+enum PartitionType {
+    RANGE,
+    LIST,
+    NO_PARTITION
+}
 
 public class RandomDDLGenerator {
     private static final Random random = new Random();
@@ -23,7 +34,7 @@ public class RandomDDLGenerator {
     private List<String> partitionColumns = new ArrayList<>();
     private List<String> partitionTypes = new ArrayList<>();
     private Map<String, List<ColumnDesc>> tableInfo = new HashMap<>();
-    private Map<String, Boolean> isRangePartition = new HashMap<>();
+    private Map<String, PartitionType> PartitionTypeInfo = new HashMap<>();
 
     public RandomDDLGenerator() {
         loadTableNames();
@@ -69,9 +80,11 @@ public class RandomDDLGenerator {
                 while (rs.next()) {
                     String createTable = rs.getString(2);
                     if (createTable.contains("PARTITION BY RANGE")) {
-                        isRangePartition.put(tableName, true);
+                        PartitionTypeInfo.put(tableName, PartitionType.RANGE);
+                    } else if (createTable.contains("PARTITION BY LIST")){
+                        PartitionTypeInfo.put(tableName, PartitionType.LIST);
                     } else {
-                        isRangePartition.put(tableName, false);
+                        PartitionTypeInfo.put(tableName, PartitionType.NO_PARTITION);
                     }
                 }
             }
@@ -127,30 +140,6 @@ public class RandomDDLGenerator {
         }
     }
 
-    public void loadPartitiosFromTable(String tableName) {
-        partitions.clear();
-        String host = DBConfig.getHost();
-        String port = DBConfig.getPort();
-        String user = DBConfig.getUser();
-        String password = DBConfig.getPassword();
-        String database = DBConfig.getDatabase();
-        String url = String.format("jdbc:mysql://%s:%s/%s", host, port, database);
-
-        try (Connection conn = DriverManager.getConnection(url, user, password)) {
-            String sql = "SHOW PARTITIONS FROM " + tableName;
-            try (Statement stmt = conn.createStatement();
-                 ResultSet rs = stmt.executeQuery(sql)) {
-                
-                while (rs.next()) {
-                    partitions.add(rs.getString(1));
-                }
-            }
-        } catch (SQLException e) {
-            System.err.println("Error loading table names: " + e.getMessage());
-            partitions.clear();
-        }
-    }
-
     public void loadPartitioInfoFromTable(String tableName) {
         partitions.clear();
         partitionColumns.clear();
@@ -169,6 +158,9 @@ public class RandomDDLGenerator {
                     List<ColumnDesc> columnDescs = tableInfo.get(tableName);
                     // Find partition definition
                     int partitionByIndex = createTable.indexOf("PARTITION BY");
+                    if (partitionByIndex == -1) {
+                        partitionByIndex = createTable.indexOf("DISTRIBUTED BY HASH");
+                    }
                     if (partitionByIndex != -1) {
                         // Extract text between parentheses after LIST/RANGE
                         int startParen = createTable.indexOf('(', partitionByIndex);
@@ -209,14 +201,10 @@ public class RandomDDLGenerator {
         return tableNames.get(random.nextInt(tableNames.size()));
     }
 
-    private String generatePartitions(String tableName) {
-        loadPartitiosFromTable(tableName);
-        return partitions.get(random.nextInt(partitions.size()));
-    }
-
     public String generateDDL() {
         
         int choice = random.nextInt(7); 
+        // int choice = 2;
         switch (choice) {
             case 0:
                 return generateAddColumn();
@@ -247,12 +235,21 @@ public class RandomDDLGenerator {
         return sb.toString();
     }
 
+    // Can not drop key col
     private String generateDropColumn() {
         StringBuilder sb = new StringBuilder();
+        String tableName = generateTableName();
+        loadTableDesc(tableName);
+        Optional<ColumnDesc> colDesc = tableInfo.get(tableName).stream()
+                .filter(c -> !c.columnSchema.key.equals("true")).findAny();
+
+        if (!colDesc.isPresent()) {
+            return "";
+        }
         sb.append("ALTER TABLE ");
-        sb.append(generateTableName());  
+        sb.append(tableName);
         sb.append(" DROP COLUMN ");
-        sb.append(generateColIdentifier());
+        sb.append(colDesc.get().columnSchema.field);
         sb.append(";");
         return sb.toString();
     }
@@ -325,17 +322,25 @@ public class RandomDDLGenerator {
 
     private String generateModifyColumn() {
         StringBuilder sb = new StringBuilder();
+        String tableName = generateTableName();
+        loadTableDesc(tableName);
+        Optional<ColumnDesc> colDesc = tableInfo.get(tableName).stream()
+                .filter(c -> !c.columnSchema.key.equals("true")).findAny();
+
+        if (!colDesc.isPresent()) {
+            return "";
+        }
         sb.append("ALTER TABLE ");
-        sb.append(generateTableName());  
+        sb.append(generateTableName());
         sb.append(" MODIFY COLUMN ");
-        sb.append(generateModifyColumnDefinition());
         sb.append(";");
+        sb.append(generateModifyColumnDefinition(colDesc.get().columnSchema.field));
         return sb.toString();
     }
 
-    private String generateModifyColumnDefinition() {
+    private String generateModifyColumnDefinition(String colName) {
         StringBuilder sb = new StringBuilder();
-        sb.append(generateColIdentifier()); 
+        sb.append(colName); 
         sb.append(" ");
         sb.append(generateDataType());
 
@@ -386,8 +391,10 @@ public class RandomDDLGenerator {
 
     private String generatePartitionDefinition(String tableName) {
         StringBuilder sb = new StringBuilder();
-        if (isRangePartition.get(tableName) ) {
+        if (PartitionTypeInfo.get(tableName).equals(PartitionType.RANGE)) {
             sb.append(generateRangePartition());
+        } else if (PartitionTypeInfo.get(tableName).equals(PartitionType.LIST)) {
+            sb.append(generateListPartition());
         } else {
             sb.append(generateListPartition());
         }

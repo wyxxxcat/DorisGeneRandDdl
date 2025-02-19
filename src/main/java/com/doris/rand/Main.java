@@ -20,8 +20,11 @@ public class Main {
         MySQLExecutor executor = new MySQLExecutor(DBConfig.getHost(), DBConfig.getPort(), DBConfig.getUser(), DBConfig.getPassword(), DBConfig.getDatabase());
         while(true) {
             try {
+
+                Thread.sleep(1000);
                 String ddl = generator.generateDDL();
                 if (ddl.isEmpty()) {
+                    System.out.println("Empty DDL, skipping...");
                     continue;
                 }
                 executor.executeDDL(ddl);
