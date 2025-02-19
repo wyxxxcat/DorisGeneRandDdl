@@ -17,10 +17,13 @@ public class ColumnDesc {
     String IndexName;
     String IndexKeysType;
     ColumnSchema columnSchema;
-    public ColumnDesc(String IndexName, String IndexKeysType, String field, String type, String internalType, String isNull, String key, String defaultValue, String extra, String visible, String defineExpr, String whereClause) {
+
+    public ColumnDesc(String IndexName, String IndexKeysType, String field, String type, String internalType,
+            String isNull, String key, String defaultValue, String extra, String visible, String defineExpr,
+            String whereClause) {
         this.IndexName = IndexName;
         this.IndexKeysType = IndexKeysType;
-        this.columnSchema = new ColumnSchema(IndexName, IndexKeysType, field, type, internalType, isNull, key, defaultValue, extra, visible, defineExpr, whereClause);
+        this.columnSchema = new ColumnSchema(IndexName, IndexKeysType, field, type, internalType, isNull, key,
+                defaultValue, extra, visible, defineExpr, whereClause);
     }
 }
-

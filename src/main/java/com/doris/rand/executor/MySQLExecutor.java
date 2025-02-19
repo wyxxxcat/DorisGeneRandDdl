@@ -12,7 +12,7 @@ public class MySQLExecutor {
     private final String password;
     private final String database;
     private final String logFile;
-    
+
     public MySQLExecutor(String host, String port, String username, String password, String database) {
         this.host = host;
         this.port = port;
@@ -21,7 +21,7 @@ public class MySQLExecutor {
         this.database = database;
         this.logFile = "rand_ddl.log";
     }
-    
+
     private Connection getConnection() throws SQLException {
         try {
             Class.forName("com.mysql.cj.jdbc.Driver");
@@ -31,25 +31,25 @@ public class MySQLExecutor {
         String url = String.format("jdbc:mysql://%s:%s/%s", host, port, database);
         return DriverManager.getConnection(url, username, password);
     }
-    
+
     public void executeDDL(String ddl) {
         LocalDateTime now = LocalDateTime.now();
         String timestamp = now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
-        
+
         try (Connection conn = getConnection();
-             Statement stmt = conn.createStatement();
-             FileWriter fw = new FileWriter(logFile, true);
-             BufferedWriter bw = new BufferedWriter(fw)) {
-            
+                Statement stmt = conn.createStatement();
+                FileWriter fw = new FileWriter(logFile, true);
+                BufferedWriter bw = new BufferedWriter(fw)) {
+
             bw.write(String.format("[%s] Executing DDL:\n%s\n", timestamp, ddl));
-            
+
             stmt.execute(ddl);
-            
+
             bw.write(String.format("[%s] Execution successful\n\n", timestamp));
-            
+
         } catch (SQLException e) {
             try (FileWriter fw = new FileWriter(logFile, true);
-                 BufferedWriter bw = new BufferedWriter(fw)) {
+                    BufferedWriter bw = new BufferedWriter(fw)) {
                 bw.write(String.format("[%s] Execution failed:\n%s\n\n", timestamp, e.getMessage()));
             } catch (IOException ioe) {
                 System.err.println("Error writing to log file: " + ioe.getMessage());
