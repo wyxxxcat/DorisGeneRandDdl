@@ -1,19 +1,5 @@
 package com.doris.rand.generator;
 
-import com.doris.rand.config.DBConfig;
-import java.sql.*;
-import java.text.NumberFormat.Style;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
-
-import java.io.FileWriter;
-import java.io.IOException;
-import java.io.PrintWriter;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-
 public class ColumnSchema {
     String indexName;
     String indexKeysType;

@@ -1,23 +1,18 @@
 package com.doris.rand.generator;
 
 import com.doris.rand.config.DBConfig;
-import com.mysql.cj.xdevapi.Table;
 
+import java.security.cert.PKIXRevocationChecker.Option;
 import java.sql.*;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
-import java.io.FileWriter;
-import java.io.IOException;
-import java.io.PrintWriter;
-import java.nio.file.OpenOption;
-import java.security.cert.PKIXRevocationChecker.Option;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
+import java.util.stream.Collector;
+import java.util.stream.Collectors;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Stream;
 
 enum PartitionType {
     RANGE,
@@ -29,6 +24,7 @@ public class RandomDDLGenerator {
     private static final Random random = new Random();
     private List<String> tableNames = new ArrayList<>();
     private List<String> partitions = new ArrayList<>();
+    private List<String> rollupNames = new ArrayList<>();
     // Add these as class fields
     private List<String> partitionColumns = new ArrayList<>();
     private List<String> partitionTypes = new ArrayList<>();
@@ -107,10 +103,9 @@ public class RandomDDLGenerator {
                     ResultSet rs = stmt.executeQuery(sql)) {
                 String indexName = "";
                 String indexKeysType = "";
-                List<ColumnDesc> columnDescs = new ArrayList<>();
                 while (rs.next()) {
                     String field = rs.getString("Field");
-                    if (field == "") {
+                    if (field.isEmpty()) {
                         indexName = "";
                         indexKeysType = "";
                         continue;
@@ -129,10 +124,18 @@ public class RandomDDLGenerator {
                     String visible = rs.getString("Visible");
                     String defineExpr = rs.getString("DefineExpr");
                     String whereClause = rs.getString("WhereClause");
-                    columnDescs.add(new ColumnDesc(indexName, indexKeysType, field, type, internalType, isNull, key,
-                            defaultValue, extra, visible, defineExpr, whereClause));
+                    List<ColumnSchema> columnSchema = new ArrayList<>(Arrays.asList(new ColumnSchema(indexName,
+                            indexKeysType, field,
+                            type, internalType, isNull, key, defaultValue, extra, visible, defineExpr, whereClause)));
+                    List<ColumnDesc> columnDescs = new ArrayList<>(Arrays
+                            .asList(new ColumnDesc(indexName, indexKeysType, columnSchema)));
+                    if (tableInfo.get(indexName) == null) {
+                        tableInfo.put(indexName, columnDescs);
+                    } else {
+                        tableInfo.get(indexName).add(new ColumnDesc(indexName, indexKeysType, columnSchema));
+                    }
+                    rollupNames.add(indexName);
                 }
-                tableInfo.put(tableName, columnDescs);
             }
         } catch (SQLException e) {
             System.err.println("Error loading table names: " + e.getMessage());
@@ -155,7 +158,7 @@ public class RandomDDLGenerator {
 
                 if (rs.next()) {
                     String createTable = rs.getString(2); // Get the CREATE TABLE statement
-                    List<ColumnDesc> columnDescs = tableInfo.get(tableName);
+                    List<ColumnSchema> colSchema = tableInfo.get(tableName).get(0).columnSchema;
                     // Find partition definition
                     int partitionByIndex = createTable.indexOf("PARTITION BY");
                     if (partitionByIndex == -1) {
@@ -173,12 +176,12 @@ public class RandomDDLGenerator {
                             for (String col : cols) {
                                 // Remove backticks and trim
                                 String cleanCol = col.trim().replace("`", "");
-                                if (columnDescs.stream().anyMatch(c -> c.columnSchema.field.equals(cleanCol))) {
+                                if (colSchema.stream().anyMatch(c -> c.field.equals(cleanCol))) {
                                     partitionColumns.add(cleanCol);
-                                    partitionTypes.add(columnDescs.stream()
-                                            .filter(c -> c.columnSchema.field.equals(cleanCol))
+                                    partitionTypes.add(colSchema.stream()
+                                            .filter(c -> c.field.equals(cleanCol))
                                             .findFirst()
-                                            .get().columnSchema.type);
+                                            .get().type);
                                 }
                             }
                         }
@@ -203,7 +206,6 @@ public class RandomDDLGenerator {
     public String generateDDL() {
 
         int choice = random.nextInt(7);
-        // int choice = 2;
         switch (choice) {
             case 0:
                 return generateAddColumn();
@@ -239,16 +241,36 @@ public class RandomDDLGenerator {
         StringBuilder sb = new StringBuilder();
         String tableName = generateTableName();
         loadTableDesc(tableName);
+
+        if (tableInfo.get(tableName) == null) {
+            return "";
+        }
+
         Optional<ColumnDesc> colDesc = tableInfo.get(tableName).stream()
-                .filter(c -> !c.columnSchema.key.equals("true")).findAny();
+                .filter(c -> c.IndexName.equals(tableName))
+                .findFirst();
 
         if (!colDesc.isPresent()) {
             return "";
         }
+
+        List<String> nonKeyColumns = tableInfo.get(tableName).stream()
+                .filter(c -> c.IndexName.equals(tableName))
+                .flatMap(c -> c.columnSchema.stream())
+                .filter(c -> !c.key.equals("true"))
+                .map(c -> c.field)
+                .collect(Collectors.toList());
+
+        if (nonKeyColumns.isEmpty()) {
+            return "";
+        }
+
+        String columnToDrop = nonKeyColumns.get(random.nextInt(nonKeyColumns.size()));
+
         sb.append("ALTER TABLE ");
         sb.append(tableName);
         sb.append(" DROP COLUMN ");
-        sb.append(colDesc.get().columnSchema.field);
+        sb.append(columnToDrop);
         sb.append(";");
         return sb.toString();
     }
@@ -280,30 +302,50 @@ public class RandomDDLGenerator {
     private String generateAddRollup() {
         StringBuilder sb = new StringBuilder();
         String tableName = generateTableName();
+        String rollupName = generateRollupIdentifier();
+        rollupNames.add(rollupName);
+        loadTableDesc(tableName);
+        List<ColumnDesc> colDesc = tableInfo.get(tableName);
+        String rollupCol = String.join(", ", random.ints(0, colDesc.size())
+                .distinct()
+                .limit(colDesc.size())
+                .mapToObj(colDesc::get)
+                .filter(c -> c.columnSchema.get(0).key.equals("false")).collect(Collectors.toList()).stream()
+                .map(c -> c.columnSchema.get(0).field).distinct().collect(Collectors.toList()));
         sb.append("ALTER TABLE ");
         sb.append(tableName);
         sb.append(" ADD ROLLUP ");
-        sb.append(generateColIdentifier());
-        sb.append(" (");
-        int numColumns = random.nextInt(3) + 1;
-        for (int i = 0; i < numColumns; i++) {
-            if (i > 0) {
-                sb.append(", ");
-            }
-            sb.append(generateColIdentifier());
-        }
-        sb.append(")");
-
+        sb.append(rollupName);
+        sb.append("(").append(rollupCol).append(")");
         sb.append(";");
         return sb.toString();
     }
 
     private String generateDropRollup() {
         StringBuilder sb = new StringBuilder();
+        String tableName = generateTableName();
+        loadTableDesc(tableName);
+
+        if (rollupNames.isEmpty()) {
+            return "";
+        }
+
+        String rollupName = rollupNames.get(random.nextInt(rollupNames.size()));
+        if (tableInfo.get(rollupName) == null) {
+            return "";
+        }
+
+        Optional<ColumnDesc> colDesc = tableInfo.get(rollupName).stream().filter(c -> !c.IndexName.equals(tableName))
+                .findFirst();
+        if (!colDesc.isPresent()) {
+            return "";
+        }
+        rollupNames.remove(rollupName);
         sb.append("ALTER TABLE ");
-        sb.append(generateTableName());
+        sb.append(tableName);
         sb.append(" DROP ROLLUP ");
-        sb.append(generateColIdentifier());
+        // indexName != tableName
+        sb.append(colDesc.get().IndexName);
         sb.append(";");
         return sb.toString();
     }
@@ -311,18 +353,13 @@ public class RandomDDLGenerator {
     private String generateModifyColumn() {
         StringBuilder sb = new StringBuilder();
         String tableName = generateTableName();
+        List<ColumnDesc> colDesc = tableInfo.get(tableName);
         loadTableDesc(tableName);
-        Optional<ColumnDesc> colDesc = tableInfo.get(tableName).stream()
-                .filter(c -> !c.columnSchema.key.equals("true")).findAny();
-
-        if (!colDesc.isPresent()) {
-            return "";
-        }
         sb.append("ALTER TABLE ");
         sb.append(generateTableName());
         sb.append(" MODIFY COLUMN ");
-        sb.append(";");
-        sb.append(generateModifyColumnDefinition(colDesc.get().columnSchema.field));
+        sb.append(
+                generateModifyColumnDefinition(colDesc.get(random.nextInt(colDesc.size())).columnSchema.get(0).field));
         return sb.toString();
     }
 
@@ -361,8 +398,7 @@ public class RandomDDLGenerator {
         }
 
         if (random.nextBoolean()) {
-            String[] keyTypes = { "KEY", "UNIQUE KEY" };
-            sb.append(" ").append(keyTypes[random.nextInt(keyTypes.length)]);
+            sb.append(" ").append("KEY");
         }
 
         return sb.toString();
@@ -438,6 +474,10 @@ public class RandomDDLGenerator {
 
     private String generateColIdentifier() {
         return String.format("col_%d", random.nextInt(1000) + 1);
+    }
+
+    private String generateRollupIdentifier() {
+        return String.format("rollup_%d", random.nextInt(1000) + 1);
     }
 
     private String generateDataType() {

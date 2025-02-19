@@ -17,14 +17,12 @@ public class Main {
 
     public static void main(String[] args) {
         RandomDDLGenerator generator = new RandomDDLGenerator();
-        MySQLExecutor executor = new MySQLExecutor(DBConfig.getHost(), DBConfig.getPort(), DBConfig.getUser(), DBConfig.getPassword(), DBConfig.getDatabase());
-        while(true) {
+        MySQLExecutor executor = new MySQLExecutor(DBConfig.getHost(), DBConfig.getPort(), DBConfig.getUser(),
+                DBConfig.getPassword(), DBConfig.getDatabase());
+        while (true) {
             try {
-
-                Thread.sleep(1000);
                 String ddl = generator.generateDDL();
                 if (ddl.isEmpty()) {
-                    System.out.println("Empty DDL, skipping...");
                     continue;
                 }
                 executor.executeDDL(ddl);
