@@ -230,7 +230,7 @@ public class RandomDDLGenerator {
 
     public String generateDDL() {
 
-        int choice = random.nextInt(7);
+        int choice = 6;
         switch (choice) {
             case 0:
                 return generateAddColumn();
@@ -384,6 +384,7 @@ public class RandomDDLGenerator {
     private String generateModifyColumn() {
         StringBuilder sb = new StringBuilder();
         String tableName = generateTableName();
+        loadTableDesc(tableName);
 
         sb.append("ALTER TABLE ");
         sb.append(tableName);
@@ -395,7 +396,9 @@ public class RandomDDLGenerator {
 
     private String generateModifyColumnDefinition(String tableName) {
         StringBuilder sb = new StringBuilder();
-        sb.append(generateColumnName(tableName));
+        String columnName = generateColumnName(tableName);
+
+        sb.append(columnName);
         sb.append(" ");
         sb.append(generateDataType());
 
@@ -404,18 +407,23 @@ public class RandomDDLGenerator {
         }
 
         if (random.nextBoolean()) {
-            sb.append(" DEFAULT \"");
-            String dataType = generateDataType();
-            if (dataType.contains("VARCHAR")) {
+            sb.append(" DEFAULT ");
+            String dataType = tableInfo.get(tableName).stream()
+                    .filter(c -> c.IndexName.equals(tableName))
+                    .flatMap(c -> c.columnSchema.stream())
+                    .filter(c -> c.field.equals(columnName))
+                    .map(c -> c.type)
+                    .findFirst()
+                    .orElse("");
+            if (dataType.toUpperCase().contains("VARCHAR")) {
                 sb.append("'default_value'");
-            } else if (dataType.equals("BOOLEAN")) {
+            } else if (dataType.toUpperCase().equals("BOOLEAN")) {
                 sb.append(random.nextBoolean() ? "TRUE" : "FALSE");
-            } else if (dataType.equals("DATE")) {
+            } else if (dataType.toUpperCase().equals("DATE")) {
                 sb.append("'2024-01-01'");
             } else {
                 sb.append(random.nextInt(100));
             }
-            sb.append("\"");
         }
 
         if (random.nextBoolean()) {
