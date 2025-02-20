@@ -1,38 +1,23 @@
 package com.doris.rand.config;
 
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.util.Properties;
-
 public class DBConfig {
-    private static Properties props;
-
-    static {
-        props = new Properties();
-        try {
-            props.load(new FileInputStream("config.properties"));
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to load config.properties", e);
-        }
-    }
-
     public static String getHost() {
-        return props.getProperty("db.host");
+        return "127.0.0.1";
     }
 
     public static String getPort() {
-        return props.getProperty("db.port");
+        return "9030";
     }
 
     public static String getUser() {
-        return props.getProperty("db.user");
+        return "root";
     }
 
     public static String getPassword() {
-        return props.getProperty("db.password");
+        return "";
     }
 
     public static String getDatabase() {
-        return props.getProperty("db.database");
+        return "TEST_ods_erp_origin";
     }
 }
