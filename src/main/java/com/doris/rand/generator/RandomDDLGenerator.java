@@ -90,6 +90,30 @@ public class RandomDDLGenerator {
         }
     }
 
+    public void loadTablePartitionNames(String tableName) {
+        String host = DBConfig.getHost();
+        String port = DBConfig.getPort();
+        String user = DBConfig.getUser();
+        String password = DBConfig.getPassword();
+        String database = DBConfig.getDatabase();
+        String url = String.format("jdbc:mysql://%s:%s/%s", host, port, database);
+
+        try (Connection conn = DriverManager.getConnection(url, user, password)) {
+            String sql = "SHOW PARTITIONS FROM " + tableName;
+            try (Statement stmt = conn.createStatement();
+                    ResultSet rs = stmt.executeQuery(sql)) {
+
+                while (rs.next()) {
+                    String partitionName = rs.getString("PartitionName");
+                    partitionNames.add(partitionName);
+                }
+            }
+        } catch (SQLException e) {
+            System.err.println("Error loading table names: " + e.getMessage());
+            tableNames.clear();
+        }
+    }
+
     public void loadTableDesc(String tableName) {
         String host = DBConfig.getHost();
         String port = DBConfig.getPort();
@@ -206,7 +230,7 @@ public class RandomDDLGenerator {
 
     public String generateDDL() {
 
-        int choice = random.nextInt(6);
+        int choice = random.nextInt(7);
         switch (choice) {
             case 0:
                 return generateAddColumn();
@@ -237,10 +261,7 @@ public class RandomDDLGenerator {
         return sb.toString();
     }
 
-    // Can not drop key col
-    private String generateDropColumn() {
-        StringBuilder sb = new StringBuilder();
-        String tableName = generateTableName();
+    private String generateColumnName(String tableName) {
         loadTableDesc(tableName);
 
         if (tableInfo.get(tableName) == null) {
@@ -266,12 +287,18 @@ public class RandomDDLGenerator {
             return "";
         }
 
-        String columnToDrop = nonKeyColumns.get(random.nextInt(nonKeyColumns.size()));
+        return nonKeyColumns.get(random.nextInt(nonKeyColumns.size()));
+    }
+
+    // Can not drop key col
+    private String generateDropColumn() {
+        StringBuilder sb = new StringBuilder();
+        String tableName = generateTableName();
 
         sb.append("ALTER TABLE ");
         sb.append(tableName);
         sb.append(" DROP COLUMN ");
-        sb.append(columnToDrop);
+        sb.append(generateColumnName(tableName));
         sb.append(";");
         return sb.toString();
     }
@@ -292,9 +319,11 @@ public class RandomDDLGenerator {
 
     private String generateDropPartition() {
         StringBuilder sb = new StringBuilder();
+        String tableName = generateTableName();
+        loadTablePartitionNames(tableName);
         String partitioName = partitionNames.get(random.nextInt(partitionNames.size()));
         sb.append("ALTER TABLE ");
-        sb.append(generateTableName());
+        sb.append(tableName);
         sb.append(" DROP PARTITION ");
         sb.append(partitioName);
         sb.append(";");
@@ -355,19 +384,18 @@ public class RandomDDLGenerator {
     private String generateModifyColumn() {
         StringBuilder sb = new StringBuilder();
         String tableName = generateTableName();
-        List<ColumnDesc> colDesc = tableInfo.get(tableName);
-        loadTableDesc(tableName);
+
         sb.append("ALTER TABLE ");
         sb.append(tableName);
         sb.append(" MODIFY COLUMN ");
-        sb.append(
-                generateModifyColumnDefinition(colDesc.get(random.nextInt(colDesc.size())).columnSchema.get(0).field));
+        sb.append(generateModifyColumnDefinition(tableName));
+        sb.append(";");
         return sb.toString();
     }
 
-    private String generateModifyColumnDefinition(String colName) {
+    private String generateModifyColumnDefinition(String tableName) {
         StringBuilder sb = new StringBuilder();
-        sb.append(colName);
+        sb.append(generateColumnName(tableName));
         sb.append(" ");
         sb.append(generateDataType());
 
@@ -376,7 +404,7 @@ public class RandomDDLGenerator {
         }
 
         if (random.nextBoolean()) {
-            sb.append(" DEFAULT ");
+            sb.append(" DEFAULT \"");
             String dataType = generateDataType();
             if (dataType.contains("VARCHAR")) {
                 sb.append("'default_value'");
@@ -387,6 +415,7 @@ public class RandomDDLGenerator {
             } else {
                 sb.append(random.nextInt(100));
             }
+            sb.append("\"");
         }
 
         if (random.nextBoolean()) {
@@ -396,11 +425,7 @@ public class RandomDDLGenerator {
         }
 
         if (random.nextBoolean()) {
-            sb.append(random.nextBoolean() ? " FIRST" : " AFTER " + generateColIdentifier());
-        }
-
-        if (random.nextBoolean()) {
-            sb.append(" ").append("KEY");
+            sb.append(random.nextBoolean() ? " FIRST" : " AFTER " + generateColumnName(tableName));
         }
 
         return sb.toString();
