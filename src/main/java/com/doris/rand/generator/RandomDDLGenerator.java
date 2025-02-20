@@ -25,6 +25,7 @@ public class RandomDDLGenerator {
     private List<String> tableNames = new ArrayList<>();
     private List<String> partitions = new ArrayList<>();
     private List<String> rollupNames = new ArrayList<>();
+    private List<String> partitionNames = new ArrayList<>();
     // Add these as class fields
     private List<String> partitionColumns = new ArrayList<>();
     private List<String> partitionTypes = new ArrayList<>();
@@ -205,7 +206,7 @@ public class RandomDDLGenerator {
 
     public String generateDDL() {
 
-        int choice = random.nextInt(7);
+        int choice = random.nextInt(6);
         switch (choice) {
             case 0:
                 return generateAddColumn();
@@ -291,10 +292,11 @@ public class RandomDDLGenerator {
 
     private String generateDropPartition() {
         StringBuilder sb = new StringBuilder();
+        String partitioName = partitionNames.get(random.nextInt(partitionNames.size()));
         sb.append("ALTER TABLE ");
         sb.append(generateTableName());
         sb.append(" DROP PARTITION ");
-        sb.append(generateColIdentifier());
+        sb.append(partitioName);
         sb.append(";");
         return sb.toString();
     }
@@ -356,7 +358,7 @@ public class RandomDDLGenerator {
         List<ColumnDesc> colDesc = tableInfo.get(tableName);
         loadTableDesc(tableName);
         sb.append("ALTER TABLE ");
-        sb.append(generateTableName());
+        sb.append(tableName);
         sb.append(" MODIFY COLUMN ");
         sb.append(
                 generateModifyColumnDefinition(colDesc.get(random.nextInt(colDesc.size())).columnSchema.get(0).field));
@@ -428,6 +430,7 @@ public class RandomDDLGenerator {
     private String generateRangePartition() {
         StringBuilder sb = new StringBuilder();
         String partName = generatePartitionIdentifier();
+        partitionNames.add(partName);
         sb.append(partName).append(" VALUES [");
 
         sb.append("(");
