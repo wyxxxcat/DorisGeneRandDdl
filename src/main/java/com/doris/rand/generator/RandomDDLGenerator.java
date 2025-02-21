@@ -23,6 +23,8 @@ enum PartitionType {
 public class RandomDDLGenerator {
     private static final Random random = new Random();
     private List<String> tableNames = new ArrayList<>();
+    private List<String> viewNames = new ArrayList<>();
+    private List<String> indexNames = new ArrayList<>();
     private List<String> partitions = new ArrayList<>();
     private List<String> rollupNames = new ArrayList<>();
     private List<String> partitionNames = new ArrayList<>();
@@ -46,17 +48,69 @@ public class RandomDDLGenerator {
         String url = String.format("jdbc:mysql://%s:%s/%s", host, port, database);
 
         try (Connection conn = DriverManager.getConnection(url, user, password)) {
-            String sql = "SHOW TABLES FROM " + database;
+            String sql = "SHOW FULL TABLES";
             try (Statement stmt = conn.createStatement();
                     ResultSet rs = stmt.executeQuery(sql)) {
 
                 while (rs.next()) {
-                    tableNames.add(rs.getString(1));
+                    String name = rs.getString(1);
+                    String type = rs.getString(2);
+                    if ("BASE TABLE".equals(type)) {
+                        tableNames.add(name);
+                    }
                 }
             }
         } catch (SQLException e) {
             System.err.println("Error loading table names: " + e.getMessage());
             tableNames.clear();
+        }
+    }
+
+    public void loadViewNames() {
+        viewNames.clear();
+        String host = DBConfig.getHost();
+        String port = DBConfig.getPort();
+        String user = DBConfig.getUser();
+        String password = DBConfig.getPassword();
+        String database = DBConfig.getDatabase();
+        String url = String.format("jdbc:mysql://%s:%s/%s", host, port, database);
+
+        try (Connection conn = DriverManager.getConnection(url, user, password)) {
+            String sql = "SHOW VIEWS FROM " + database;
+            try (Statement stmt = conn.createStatement();
+                    ResultSet rs = stmt.executeQuery(sql)) {
+
+                while (rs.next()) {
+                    viewNames.add(rs.getString(1));
+                }
+            }
+        } catch (SQLException e) {
+            System.err.println("Error loading table names: " + e.getMessage());
+            viewNames.clear();
+        }
+    }
+
+    public void loadIndexNames(String tableName) {
+        indexNames.clear();
+        String host = DBConfig.getHost();
+        String port = DBConfig.getPort();
+        String user = DBConfig.getUser();
+        String password = DBConfig.getPassword();
+        String database = DBConfig.getDatabase();
+        String url = String.format("jdbc:mysql://%s:%s/%s", host, port, database);
+
+        try (Connection conn = DriverManager.getConnection(url, user, password)) {
+            String sql = "SHOW INDEX FROM " + tableName;
+            try (Statement stmt = conn.createStatement();
+                    ResultSet rs = stmt.executeQuery(sql)) {
+
+                while (rs.next()) {
+                    indexNames.add(rs.getString("Key_name"));
+                }
+            }
+        } catch (SQLException e) {
+            System.err.println("Error loading table names: " + e.getMessage());
+            indexNames.clear();
         }
     }
 
@@ -173,6 +227,12 @@ public class RandomDDLGenerator {
         partitionColumns.clear();
         partitionTypes.clear();
 
+        // First check if table info exists
+        if (!tableInfo.containsKey(tableName) || tableInfo.get(tableName) == null
+                || tableInfo.get(tableName).isEmpty()) {
+            return;
+        }
+
         String url = String.format("jdbc:mysql://%s:%s/%s",
                 DBConfig.getHost(), DBConfig.getPort(), DBConfig.getDatabase());
 
@@ -184,6 +244,10 @@ public class RandomDDLGenerator {
                 if (rs.next()) {
                     String createTable = rs.getString(2); // Get the CREATE TABLE statement
                     List<ColumnSchema> colSchema = tableInfo.get(tableName).get(0).columnSchema;
+                    if (colSchema == null || colSchema.isEmpty()) {
+                        return;
+                    }
+
                     // Find partition definition
                     int partitionByIndex = createTable.indexOf("PARTITION BY");
                     if (partitionByIndex == -1) {
@@ -203,15 +267,16 @@ public class RandomDDLGenerator {
                                 String cleanCol = col.trim().replace("`", "");
                                 if (colSchema.stream().anyMatch(c -> c.field.equals(cleanCol))) {
                                     partitionColumns.add(cleanCol);
-                                    partitionTypes.add(colSchema.stream()
+                                    Optional<String> type = colSchema.stream()
                                             .filter(c -> c.field.equals(cleanCol))
-                                            .findFirst()
-                                            .get().type);
+                                            .map(c -> c.type)
+                                            .findFirst();
+                                    if (type.isPresent()) {
+                                        partitionTypes.add(type.get());
+                                    }
                                 }
                             }
                         }
-                    } else {
-                        System.out.println("No partition definition found for table: " + tableName);
                     }
                 }
             }
@@ -229,23 +294,46 @@ public class RandomDDLGenerator {
     }
 
     public String generateDDL() {
-
-        int choice = 6;
+        int choice = random.nextInt(20);
         switch (choice) {
             case 0:
                 return generateAddColumn();
             case 1:
                 return generateDropColumn();
             case 2:
-                return generateAddPartition();
-            case 3:
-                return generateDropPartition();
-            case 4:
-                return generateAddRollup();
-            case 5:
-                return generateDropRollup();
-            case 6:
                 return generateModifyColumn();
+            case 3:
+                return generateRenameColumn();
+            case 4:
+                return generateAddPartition();
+            case 5:
+                return generateDropPartition();
+            case 6:
+                return generateReplacePartition();
+            case 7:
+                return generateRenamePartition();
+            case 8:
+                return generateAddRollup();
+            case 9:
+                return generateDropRollup();
+            case 10:
+                return generateRenameRollup();
+            case 11:
+                return generateCreateIndex();
+            case 12:
+                return generateDropIndex();
+            case 13:
+                return generateBuildIndex();
+            case 16:
+                return generateCreateView();
+            case 17:
+                return generateDropView();
+            case 18:
+                return generateAlterView();
+            case 19:
+                return generateCreateMaterializedView();
+            case 20:
+                return generateDropMaterializedView();
             default:
                 return "";
         }
@@ -290,7 +378,6 @@ public class RandomDDLGenerator {
         return nonKeyColumns.get(random.nextInt(nonKeyColumns.size()));
     }
 
-    // Can not drop key col
     private String generateDropColumn() {
         StringBuilder sb = new StringBuilder();
         String tableName = generateTableName();
@@ -306,9 +393,18 @@ public class RandomDDLGenerator {
     private String generateAddPartition() {
         StringBuilder sb = new StringBuilder();
         String tableName = generateTableName();
+
+        // Load required information
         loadTableDesc(tableName);
         loadTableIsRangePartition(tableName);
         loadPartitioInfoFromTable(tableName);
+
+        // Check if we have partition info
+        if (partitionColumns.isEmpty() || partitionTypes.isEmpty() ||
+                !PartitionTypeInfo.containsKey(tableName)) {
+            return "";
+        }
+
         sb.append("ALTER TABLE ");
         sb.append(tableName);
         sb.append(" ADD PARTITION ");
@@ -334,21 +430,46 @@ public class RandomDDLGenerator {
         StringBuilder sb = new StringBuilder();
         String tableName = generateTableName();
         String rollupName = generateRollupIdentifier();
-        rollupNames.add(rollupName);
         loadTableDesc(tableName);
+
+        if (!tableInfo.containsKey(tableName)) {
+            return "";
+        }
+
         List<ColumnDesc> colDesc = tableInfo.get(tableName);
-        String rollupCol = String.join(", ", random.ints(0, colDesc.size())
+        if (colDesc == null || colDesc.isEmpty()) {
+            return "";
+        }
+
+        List<String> rollupColumns = colDesc.stream()
+                .filter(c -> c.columnSchema != null && !c.columnSchema.isEmpty())
+                .filter(c -> c.IndexName.equals(tableName))
+                .map(c -> c.columnSchema.get(0))
+                .filter(c -> c.key != null && c.key.equals("false"))
+                .map(c -> c.field)
                 .distinct()
-                .limit(colDesc.size())
-                .mapToObj(colDesc::get)
-                .filter(c -> c.columnSchema.get(0).key.equals("false")).collect(Collectors.toList()).stream()
-                .map(c -> c.columnSchema.get(0).field).distinct().collect(Collectors.toList()));
+                .collect(Collectors.toList());
+
+        if (rollupColumns.isEmpty()) {
+            return "";
+        }
+
+        int numColumns = 1 + random.nextInt(Math.min(3, rollupColumns.size()));
+        List<String> selectedColumns = random.ints(0, rollupColumns.size())
+                .distinct()
+                .limit(numColumns)
+                .mapToObj(rollupColumns::get)
+                .collect(Collectors.toList());
+
+        String rollupCol = String.join(", ", selectedColumns);
+
         sb.append("ALTER TABLE ");
         sb.append(tableName);
         sb.append(" ADD ROLLUP ");
         sb.append(rollupName);
         sb.append("(").append(rollupCol).append(")");
         sb.append(";");
+
         return sb.toString();
     }
 
@@ -371,25 +492,10 @@ public class RandomDDLGenerator {
         if (!colDesc.isPresent()) {
             return "";
         }
-        rollupNames.remove(rollupName);
         sb.append("ALTER TABLE ");
         sb.append(tableName);
         sb.append(" DROP ROLLUP ");
-        // indexName != tableName
         sb.append(colDesc.get().IndexName);
-        sb.append(";");
-        return sb.toString();
-    }
-
-    private String generateModifyColumn() {
-        StringBuilder sb = new StringBuilder();
-        String tableName = generateTableName();
-        loadTableDesc(tableName);
-
-        sb.append("ALTER TABLE ");
-        sb.append(tableName);
-        sb.append(" MODIFY COLUMN ");
-        sb.append(generateModifyColumnDefinition(tableName));
         sb.append(";");
         return sb.toString();
     }
@@ -397,6 +503,16 @@ public class RandomDDLGenerator {
     private String generateModifyColumnDefinition(String tableName) {
         StringBuilder sb = new StringBuilder();
         String columnName = generateColumnName(tableName);
+
+        // Return empty if no valid column name
+        if (columnName == null || columnName.isEmpty()) {
+            return "";
+        }
+
+        // Return empty if no table info
+        if (!tableInfo.containsKey(tableName)) {
+            return "";
+        }
 
         sb.append(columnName);
         sb.append(" ");
@@ -407,14 +523,15 @@ public class RandomDDLGenerator {
         }
 
         if (random.nextBoolean()) {
-            sb.append(" DEFAULT ");
             String dataType = tableInfo.get(tableName).stream()
                     .filter(c -> c.IndexName.equals(tableName))
                     .flatMap(c -> c.columnSchema.stream())
                     .filter(c -> c.field.equals(columnName))
                     .map(c -> c.type)
                     .findFirst()
-                    .orElse("");
+                    .orElse("INT"); // Default to INT if type not found
+
+            sb.append(" DEFAULT ");
             if (dataType.toUpperCase().contains("VARCHAR")) {
                 sb.append("'default_value'");
             } else if (dataType.toUpperCase().equals("BOOLEAN")) {
@@ -435,6 +552,25 @@ public class RandomDDLGenerator {
         if (random.nextBoolean()) {
             sb.append(random.nextBoolean() ? " FIRST" : " AFTER " + generateColumnName(tableName));
         }
+
+        return sb.toString();
+    }
+
+    private String generateModifyColumn() {
+        StringBuilder sb = new StringBuilder();
+        String tableName = generateTableName();
+        loadTableDesc(tableName);
+
+        String columnDef = generateModifyColumnDefinition(tableName);
+        if (columnDef.isEmpty()) {
+            return "";
+        }
+
+        sb.append("ALTER TABLE ");
+        sb.append(tableName);
+        sb.append(" MODIFY COLUMN ");
+        sb.append(columnDef);
+        sb.append(";");
 
         return sb.toString();
     }
@@ -568,5 +704,392 @@ public class RandomDDLGenerator {
             default:
                 return "\"0\"";
         }
+    }
+
+    private String generateRenameColumn() {
+        StringBuilder sb = new StringBuilder();
+        String tableName = generateTableName();
+        loadTableDesc(tableName);
+
+        String oldColumnName = generateColumnName(tableName);
+        if (oldColumnName.isEmpty()) {
+            return "";
+        }
+
+        String newColumnName = generateColIdentifier();
+
+        if (tableInfo.containsKey(tableName)) {
+            List<ColumnDesc> columnDescs = tableInfo.get(tableName);
+            for (ColumnDesc desc : columnDescs) {
+                for (ColumnSchema schema : desc.columnSchema) {
+                    if (schema.field.equals(oldColumnName)) {
+                        schema.field = newColumnName;
+                    }
+                }
+            }
+        }
+
+        sb.append("ALTER TABLE ");
+        sb.append(tableName);
+        sb.append(" RENAME COLUMN ");
+        sb.append(oldColumnName);
+        sb.append(" ");
+        sb.append(newColumnName);
+        sb.append(";");
+
+        return sb.toString();
+    }
+
+    private String generateReplacePartition() {
+        StringBuilder sb = new StringBuilder();
+        String tableName = generateTableName();
+        loadTablePartitionNames(tableName);
+
+        // Check if table has partitions
+        if (partitionNames.isEmpty()) {
+            return "";
+        }
+
+        String existingPartition = partitionNames.get(random.nextInt(partitionNames.size()));
+
+        String tempPartition = "temp_" + generatePartitionIdentifier();
+
+        sb.append("ALTER TABLE ");
+        sb.append(tableName);
+        sb.append(" REPLACE PARTITION (");
+        sb.append(existingPartition);
+        sb.append(") WITH TEMPORARY PARTITION (");
+        sb.append(tempPartition);
+        sb.append(");");
+
+        return sb.toString();
+    }
+
+    private String generateRenamePartition() {
+        StringBuilder sb = new StringBuilder();
+        String tableName = generateTableName();
+        loadTablePartitionNames(tableName);
+
+        if (partitionNames.isEmpty()) {
+            return "";
+        }
+
+        String oldPartitionName = partitionNames.get(random.nextInt(partitionNames.size()));
+
+        String newPartitionName = generatePartitionIdentifier();
+
+        sb.append("ALTER TABLE ");
+        sb.append(tableName);
+        sb.append(" RENAME PARTITION ");
+        sb.append(oldPartitionName);
+        sb.append(" ");
+        sb.append(newPartitionName);
+        sb.append(";");
+
+        return sb.toString();
+    }
+
+    private String generateRenameRollup() {
+        StringBuilder sb = new StringBuilder();
+        String tableName = generateTableName();
+        loadTableDesc(tableName);
+
+        if (rollupNames.isEmpty()) {
+            return "";
+        }
+
+        Optional<String> oldRollupOpt = rollupNames.stream()
+                .filter(name -> !name.equals(tableName))
+                .findFirst();
+
+        if (!oldRollupOpt.isPresent()) {
+            return "";
+        }
+
+        String oldRollupName = oldRollupOpt.get();
+        String newRollupName = generateRollupIdentifier();
+
+        if (tableInfo.containsKey(oldRollupName)) {
+            List<ColumnDesc> columnDescs = tableInfo.get(oldRollupName);
+            tableInfo.remove(oldRollupName);
+            tableInfo.put(newRollupName, columnDescs);
+
+            for (ColumnDesc desc : columnDescs) {
+                desc.IndexName = newRollupName;
+                for (ColumnSchema schema : desc.columnSchema) {
+                    schema.indexName = newRollupName;
+                }
+            }
+        }
+
+        sb.append("ALTER TABLE ");
+        sb.append(tableName);
+        sb.append(" RENAME ROLLUP ");
+        sb.append(oldRollupName);
+        sb.append(" ");
+        sb.append(newRollupName);
+        sb.append(";");
+
+        return sb.toString();
+    }
+
+    private String generateCreateIndex() {
+        StringBuilder sb = new StringBuilder();
+        String tableName = generateTableName();
+        loadTableDesc(tableName);
+
+        String indexName = String.format("idx_%s_%d", tableName, random.nextInt(1000));
+
+        List<String> indexableColumns = tableInfo.get(tableName).stream()
+                .filter(c -> c.IndexName.equals(tableName))
+                .flatMap(c -> c.columnSchema.stream())
+                .filter(c -> !c.key.equals("true"))
+                .map(c -> c.field)
+                .collect(Collectors.toList());
+
+        if (indexableColumns.isEmpty()) {
+            return "";
+        }
+
+        int numColumns = 1 + random.nextInt(Math.min(3, indexableColumns.size()));
+        List<String> selectedColumns = random.ints(0, indexableColumns.size())
+                .distinct()
+                .limit(numColumns)
+                .mapToObj(indexableColumns::get)
+                .collect(Collectors.toList());
+
+        String[] indexTypes = { "INVERTED", "NGRAM_BF", "" };
+        String indexType = indexTypes[random.nextInt(indexTypes.length)];
+
+        sb.append("CREATE INDEX IF NOT EXISTS ");
+        sb.append(indexName);
+        sb.append(" ON ");
+        sb.append(tableName);
+        sb.append(" (");
+        sb.append(String.join(", ", selectedColumns));
+        sb.append(")");
+
+        if (!indexType.isEmpty()) {
+            sb.append(" USING ");
+            sb.append(indexType);
+        }
+
+        sb.append(";");
+
+        return sb.toString();
+    }
+
+    private String generateBuildIndex() {
+        StringBuilder sb = new StringBuilder();
+        String tableName = generateTableName();
+        loadIndexNames(tableName);
+        loadTablePartitionNames(tableName);
+
+        if (indexNames.isEmpty()) {
+            return "";
+        }
+
+        String indexName = indexNames.get(random.nextInt(indexNames.size()));
+
+        sb.append("BUILD INDEX ");
+        sb.append(indexName);
+        sb.append(" ON ");
+        sb.append(tableName);
+
+        // Optionally add partition specifications
+        if (!partitionNames.isEmpty() && random.nextBoolean()) {
+            int numPartitions = 1 + random.nextInt(Math.min(3, partitionNames.size()));
+            List<String> selectedPartitions = random.ints(0, partitionNames.size())
+                    .distinct()
+                    .limit(numPartitions)
+                    .mapToObj(partitionNames::get)
+                    .collect(Collectors.toList());
+
+            sb.append(" (");
+            sb.append(String.join(", ", selectedPartitions));
+            sb.append(")");
+        }
+
+        sb.append(";");
+
+        return sb.toString();
+    }
+
+    private String generateCreateView() {
+        StringBuilder sb = new StringBuilder();
+        String tableName = generateTableName();
+        loadTableDesc(tableName);
+
+        if (!tableInfo.containsKey(tableName) || tableInfo.get(tableName) == null
+                || tableInfo.get(tableName).isEmpty()) {
+            return "";
+        }
+
+        String viewName = String.format("view_%s_%d", tableName, random.nextInt(1000));
+
+        List<String> availableColumns = new ArrayList<>();
+        try {
+            availableColumns = tableInfo.get(tableName).stream()
+                    .filter(c -> c != null && c.IndexName != null && c.IndexName.equals(tableName))
+                    .filter(c -> c.columnSchema != null)
+                    .flatMap(c -> c.columnSchema.stream())
+                    .filter(c -> c != null && c.field != null)
+                    .map(c -> c.field)
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            System.err.println("Error getting columns for view: " + e.getMessage());
+            return "";
+        }
+
+        if (availableColumns.isEmpty()) {
+            return "";
+        }
+
+        try {
+            int numColumns = 1 + random.nextInt(Math.min(5, availableColumns.size()));
+            List<String> selectedColumns = random.ints(0, availableColumns.size())
+                    .distinct()
+                    .limit(numColumns)
+                    .mapToObj(availableColumns::get)
+                    .collect(Collectors.toList());
+
+            sb.append("CREATE VIEW IF NOT EXISTS ");
+            sb.append(viewName);
+
+            if (random.nextBoolean()) {
+                sb.append(" (");
+                List<String> columnDefs = selectedColumns.stream()
+                        .map(col -> "v_" + col)
+                        .collect(Collectors.toList());
+                sb.append(String.join(", ", columnDefs));
+                sb.append(")");
+            }
+
+            sb.append(" AS SELECT ");
+            sb.append(String.join(", ", selectedColumns));
+            sb.append(" FROM ");
+            sb.append(tableName);
+            sb.append(";");
+
+            return sb.toString();
+        } catch (Exception e) {
+            System.err.println("Error generating view DDL: " + e.getMessage());
+            return "";
+        }
+    }
+
+    private String generateDropView() {
+        StringBuilder sb = new StringBuilder();
+        loadViewNames();
+
+        if (viewNames.isEmpty()) {
+            return "";
+        }
+
+        String viewName = viewNames.get(random.nextInt(viewNames.size()));
+
+        sb.append("DROP VIEW IF EXISTS ");
+        sb.append(viewName);
+        sb.append(";");
+
+        return sb.toString();
+    }
+
+    private String generateAlterView() {
+        StringBuilder sb = new StringBuilder();
+
+        loadViewNames();
+        if (viewNames.isEmpty()) {
+            return "";
+        }
+        String viewName = viewNames.get(random.nextInt(viewNames.size()));
+
+        String tableName = generateTableName();
+        loadTableDesc(tableName);
+        
+        if (!tableInfo.containsKey(tableName) || tableInfo.get(tableName) == null 
+            || tableInfo.get(tableName).isEmpty()) {
+            return "";
+        }
+
+        List<String> availableColumns = new ArrayList<>();
+        try {
+            availableColumns = tableInfo.get(tableName).stream()
+                    .filter(c -> c != null && c.IndexName != null && c.IndexName.equals(tableName))
+                    .filter(c -> c.columnSchema != null)
+                    .flatMap(c -> c.columnSchema.stream())
+                    .filter(c -> c != null && c.field != null)
+                    .map(c -> c.field)
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            System.err.println("Error getting columns for view: " + e.getMessage());
+            return "";
+        }
+
+        if (availableColumns.isEmpty()) {
+            return "";
+        }
+
+        try {
+            // Generate view definition
+            int numColumns = 1 + random.nextInt(Math.min(5, availableColumns.size()));
+            List<String> selectedColumns = random.ints(0, availableColumns.size())
+                    .distinct()
+                    .limit(numColumns)
+                    .mapToObj(availableColumns::get)
+                    .collect(Collectors.toList());
+
+            sb.append("ALTER VIEW ");
+            sb.append(viewName);
+
+            if (random.nextBoolean()) {
+                sb.append(" (");
+                List<String> columnDefs = selectedColumns.stream()
+                        .map(col -> "v_" + col)
+                        .collect(Collectors.toList());
+                sb.append(String.join(", ", columnDefs));
+                sb.append(")");
+            }
+
+            sb.append(" AS SELECT ");
+            sb.append(String.join(", ", selectedColumns));
+            sb.append(" FROM ");
+            sb.append(tableName);
+            sb.append(";");
+
+            return sb.toString();
+        } catch (Exception e) {
+            System.err.println("Error generating view DDL: " + e.getMessage());
+            return "";
+        }
+    }
+
+    private String generateCreateMaterializedView() {
+        return "";
+    }
+
+    private String generateDropMaterializedView() {
+        return "";
+    }
+
+    private String generateDropIndex() {
+        StringBuilder sb = new StringBuilder();
+        String tableName = generateTableName();
+        loadIndexNames(tableName);
+
+        if (indexNames.isEmpty()) {
+            return "";
+        }
+
+        // Select a random index to drop
+        String indexName = indexNames.get(random.nextInt(indexNames.size()));
+
+        sb.append("DROP INDEX ");
+        sb.append(indexName);
+        sb.append(" ON ");
+        sb.append(tableName);
+        sb.append(";");
+
+        return sb.toString();
     }
 }
