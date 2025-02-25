@@ -1,9 +1,10 @@
 # Doris Random DDL Generator
 
 ## Configuration
-Edit `config.properties` to set your database connection details:
+Edit `src/main/java/com/doris/rand/config/DBConfig.java` to set your database connection details:
 ```properties
-db.url=jdbc:mysql://localhost:9030
+db.host=localhost
+db.port=port
 db.user=root
 db.password=your_password
 db.database=your_database_name
