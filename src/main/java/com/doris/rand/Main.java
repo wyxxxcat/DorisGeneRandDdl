@@ -19,14 +19,14 @@ public class Main {
         RandomDDLGenerator generator = new RandomDDLGenerator();
         MySQLExecutor executor = new MySQLExecutor(DBConfig.getHost(), DBConfig.getPort(), DBConfig.getUser(),
                 DBConfig.getPassword(), DBConfig.getDatabase());
-        while (true) {
+        for (int i = 0;i < DBConfig.getRandCount();i++) {
             try {
                 String ddl = generator.generateDDL();
                 if (ddl.isEmpty()) {
                     continue;
                 }
-                executor.executeDDL(ddl);
                 System.out.println(ddl);
+                executor.executeDDL(ddl);
 
                 logDDL(ddl);
 

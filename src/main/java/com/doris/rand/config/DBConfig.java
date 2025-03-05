@@ -18,6 +18,10 @@ public class DBConfig {
     }
 
     public static String getDatabase() {
-        return "TEST_ods_erp_origin";
+        return "dim";
+    }
+
+    public static int getRandCount() {
+        return 200;
     }
 }
