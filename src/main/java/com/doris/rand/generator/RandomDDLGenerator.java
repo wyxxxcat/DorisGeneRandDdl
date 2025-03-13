@@ -289,7 +289,7 @@ public class RandomDDLGenerator {
     }
 
     public String generateDDL() {
-        int choice = random.nextInt(20);
+        int choice = random.nextInt(18);
         switch (choice) {
             case 0:
                 return generateAddColumn();
@@ -325,10 +325,10 @@ public class RandomDDLGenerator {
                 return generateDropView();
             case 18:
                 return generateAlterView();
-            case 19:
-                return generateCreateMaterializedView();
-            case 20:
-                return generateDropMaterializedView();
+            // case 19:
+            // return generateCreateMaterializedView();
+            // case 20:
+            // return generateDropMaterializedView();
             default:
                 return "";
         }
@@ -410,6 +410,9 @@ public class RandomDDLGenerator {
         StringBuilder sb = new StringBuilder();
         String tableName = generateTableName();
         loadTablePartitionNames(tableName);
+        if (partitionNames.isEmpty()) {
+            return "";
+        }
         String partitioName = partitionNames.get(random.nextInt(partitionNames.size()));
         sb.append("ALTER TABLE ");
         sb.append(tableName);
@@ -828,6 +831,11 @@ public class RandomDDLGenerator {
 
         String indexName = String.format("idx_%s_%d", tableName, random.nextInt(1000));
 
+        // Make sure tableInfo contains the table
+        if (!tableInfo.containsKey(tableName)) {
+            return "";
+        }
+
         List<String> indexableColumns = tableInfo.get(tableName).stream()
                 .filter(c -> c.IndexName.equals(tableName))
                 .flatMap(c -> c.columnSchema.stream())
@@ -839,12 +847,8 @@ public class RandomDDLGenerator {
             return "";
         }
 
-        int numColumns = 1 + random.nextInt(Math.min(3, indexableColumns.size()));
-        List<String> selectedColumns = random.ints(0, indexableColumns.size())
-                .distinct()
-                .limit(numColumns)
-                .mapToObj(indexableColumns::get)
-                .collect(Collectors.toList());
+        // Select exactly one column for the index
+        String selectedColumn = indexableColumns.get(random.nextInt(indexableColumns.size()));
 
         String[] indexTypes = { "INVERTED", "NGRAM_BF", "" };
         String indexType = indexTypes[random.nextInt(indexTypes.length)];
@@ -854,7 +858,7 @@ public class RandomDDLGenerator {
         sb.append(" ON ");
         sb.append(tableName);
         sb.append(" (");
-        sb.append(String.join(", ", selectedColumns));
+        sb.append(selectedColumn);
         sb.append(")");
 
         if (!indexType.isEmpty()) {
@@ -891,7 +895,7 @@ public class RandomDDLGenerator {
                     .limit(numPartitions)
                     .mapToObj(partitionNames::get)
                     .collect(Collectors.toList());
-
+            sb.append("PARTITION");
             sb.append(" (");
             sb.append(String.join(", ", selectedPartitions));
             sb.append(")");
@@ -993,9 +997,9 @@ public class RandomDDLGenerator {
 
         String tableName = generateTableName();
         loadTableDesc(tableName);
-        
-        if (!tableInfo.containsKey(tableName) || tableInfo.get(tableName) == null 
-            || tableInfo.get(tableName).isEmpty()) {
+
+        if (!tableInfo.containsKey(tableName) || tableInfo.get(tableName) == null
+                || tableInfo.get(tableName).isEmpty()) {
             return "";
         }
 
@@ -1054,14 +1058,14 @@ public class RandomDDLGenerator {
         StringBuilder sb = new StringBuilder();
         String tableName = generateTableName();
         loadTableDesc(tableName);
-    
-        if (!tableInfo.containsKey(tableName) || tableInfo.get(tableName) == null 
+
+        if (!tableInfo.containsKey(tableName) || tableInfo.get(tableName) == null
                 || tableInfo.get(tableName).isEmpty()) {
             return "";
         }
-    
+
         String mvName = String.format("mv_%s_%d", tableName, random.nextInt(1000));
-    
+
         List<String> availableColumns = new ArrayList<>();
         try {
             availableColumns = tableInfo.get(tableName).stream()
@@ -1075,11 +1079,11 @@ public class RandomDDLGenerator {
             System.err.println("Error getting columns for materialized view: " + e.getMessage());
             return "";
         }
-    
+
         if (availableColumns.isEmpty()) {
             return "";
         }
-    
+
         try {
             int numColumns = 1 + random.nextInt(Math.min(5, availableColumns.size()));
             List<String> selectedColumns = random.ints(0, availableColumns.size())
@@ -1087,44 +1091,44 @@ public class RandomDDLGenerator {
                     .limit(numColumns)
                     .mapToObj(availableColumns::get)
                     .collect(Collectors.toList());
-    
+
             List<String> selectExpressions = new ArrayList<>();
             for (String col : selectedColumns) {
                 if (random.nextBoolean()) {
-                    String[] aggFunctions = {"SUM", "COUNT", "MIN", "MAX", "AVG"};
+                    String[] aggFunctions = { "SUM", "COUNT", "MIN", "MAX", "AVG" };
                     String aggFunction = aggFunctions[random.nextInt(aggFunctions.length)];
                     selectExpressions.add(String.format("%s(%s)", aggFunction, col));
                 } else {
                     selectExpressions.add(col);
                 }
             }
-    
+
             sb.append("CREATE MATERIALIZED VIEW ");
             sb.append(mvName);
             sb.append(" AS SELECT ");
             sb.append(String.join(", ", selectExpressions));
             sb.append(" FROM ");
             sb.append(tableName);
-    
+
             List<String> nonAggColumns = selectExpressions.stream()
                     .filter(expr -> !expr.contains("("))
                     .collect(Collectors.toList());
-            
+
             if (!nonAggColumns.isEmpty()) {
                 sb.append(" GROUP BY ");
                 sb.append(String.join(", ", nonAggColumns));
             }
-    
+
             if (random.nextBoolean() && !nonAggColumns.isEmpty()) {
                 sb.append(" ORDER BY ");
                 String orderCol = nonAggColumns.get(random.nextInt(nonAggColumns.size()));
                 sb.append(orderCol);
                 sb.append(random.nextBoolean() ? " ASC" : " DESC");
             }
-    
+
             sb.append(";");
             return sb.toString();
-    
+
         } catch (Exception e) {
             System.err.println("Error generating materialized view DDL: " + e.getMessage());
             return "";
@@ -1135,44 +1139,45 @@ public class RandomDDLGenerator {
         StringBuilder sb = new StringBuilder();
         String tableName = generateTableName();
         loadTableDesc(tableName);
-    
+
         if (rollupNames.isEmpty()) {
             return "";
         }
-    
-        // Filter out base table name and rollup names, keep only materialized view names
+
+        // Filter out base table name and rollup names, keep only materialized view
+        // names
         List<String> materializedViews = new ArrayList<>();
         for (String indexName : rollupNames) {
             if (indexName.equals(tableName)) {
                 continue;
             }
-    
+
             List<ColumnDesc> columnDescs = tableInfo.get(indexName);
             if (columnDescs == null || columnDescs.isEmpty()) {
                 continue;
             }
-    
+
             boolean isMaterializedView = columnDescs.stream()
-                .flatMap(desc -> desc.columnSchema.stream())
-                .anyMatch(schema -> schema.defineExpr != null && !schema.defineExpr.isEmpty());
-    
+                    .flatMap(desc -> desc.columnSchema.stream())
+                    .anyMatch(schema -> schema.defineExpr != null && !schema.defineExpr.isEmpty());
+
             if (isMaterializedView) {
                 materializedViews.add(indexName);
             }
         }
-    
+
         if (materializedViews.isEmpty()) {
             return "";
         }
-    
+
         String mvName = materializedViews.get(random.nextInt(materializedViews.size()));
-    
+
         sb.append("DROP MATERIALIZED VIEW ");
         sb.append(mvName);
         sb.append(" ON ");
         sb.append(tableName);
         sb.append(";");
-    
+
         return sb.toString();
     }
 
