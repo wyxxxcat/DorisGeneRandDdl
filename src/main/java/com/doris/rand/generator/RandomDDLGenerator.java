@@ -831,7 +831,6 @@ public class RandomDDLGenerator {
 
         String indexName = String.format("idx_%s_%d", tableName, random.nextInt(1000));
 
-        // Make sure tableInfo contains the table
         if (!tableInfo.containsKey(tableName)) {
             return "";
         }

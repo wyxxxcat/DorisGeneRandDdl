@@ -32,7 +32,7 @@ public class MySQLExecutor {
         return DriverManager.getConnection(url, username, password);
     }
 
-    public void executeDDL(String ddl) {
+    public boolean executeDDL(String ddl) {
         LocalDateTime now = LocalDateTime.now();
         String timestamp = now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
 
@@ -46,6 +46,7 @@ public class MySQLExecutor {
             stmt.execute(ddl);
 
             bw.write(String.format("[%s] Execution successful\n\n", timestamp));
+            return true;
 
         } catch (SQLException e) {
             try (FileWriter fw = new FileWriter(logFile, true);
@@ -53,10 +54,13 @@ public class MySQLExecutor {
                 bw.write(String.format("[%s] Execution failed:\n%s\n\n", timestamp, e.getMessage()));
             } catch (IOException ioe) {
                 System.err.println("Error writing to log file: " + ioe.getMessage());
+                return false;
             }
             System.err.println("SQL Error: " + e.getMessage());
+            return false;
         } catch (IOException e) {
             System.err.println("Error writing to log file: " + e.getMessage());
+            return false;
         }
     }
 }
