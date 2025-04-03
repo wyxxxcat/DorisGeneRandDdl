@@ -2,13 +2,13 @@ package com.doris.rand.generator;
 
 import com.doris.rand.config.DBConfig;
 
-import java.security.cert.PKIXRevocationChecker.Option;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
-import java.util.stream.Collector;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.HashMap;
 import java.util.Map;
@@ -28,6 +28,7 @@ public class RandomDDLGenerator {
     private List<String> partitions = new ArrayList<>();
     private List<String> rollupNames = new ArrayList<>();
     private List<String> partitionNames = new ArrayList<>();
+    private List<List<ColumnRangeInfo>> partitionRanges = new ArrayList<>();
     // Add these as class fields
     private List<String> partitionColumns = new ArrayList<>();
     private List<String> partitionTypes = new ArrayList<>();
@@ -144,7 +145,7 @@ public class RandomDDLGenerator {
         }
     }
 
-    public void loadTablePartitionNames(String tableName) {
+    public void loadTablePartitionInfos(String tableName) {
         String host = DBConfig.getHost();
         String port = DBConfig.getPort();
         String user = DBConfig.getUser();
@@ -160,12 +161,78 @@ public class RandomDDLGenerator {
                 while (rs.next()) {
                     String partitionName = rs.getString("PartitionName");
                     partitionNames.add(partitionName);
+                    partitionRanges.add(parseRangePartition(partitionName, rs.getString("Range")));
                 }
             }
         } catch (SQLException e) {
             System.err.println("Error loading table names: " + e.getMessage());
             tableNames.clear();
         }
+    }
+
+    private static Object parseValue(String dataType, String value) {
+        switch (dataType.toUpperCase()) {
+            case "INT":
+            case "TINYINT":
+            case "SMALLINT":
+                try {
+                    return Integer.parseInt(value);
+                } catch (NumberFormatException e) {
+                    return value;
+                }
+            case "BIGINT":
+            case "LARGEINT":
+                try {
+                    return Long.parseLong(value);
+                } catch (NumberFormatException e) {
+                    return value;
+                }
+            case "DECIMAL":
+            case "DOUBLE":
+            case "FLOAT":
+                try {
+                    return Double.parseDouble(value);
+                } catch (NumberFormatException e) {
+                    return value;
+                }
+            case "DATE":
+            case "DATETIME":
+            case "VARCHAR":
+            case "CHAR":
+            default:
+                if (value.startsWith("\"") && value.endsWith("\"")) {
+                    return value.substring(1, value.length() - 1);
+                }
+                return value;
+        }
+    }
+
+    public static List<ColumnRangeInfo> parseRangePartition(String partitionName, String rangeInfo) {
+        List<ColumnRangeInfo> partitionInfo = new ArrayList<>();
+
+        Pattern pattern = Pattern.compile("types: \\[(.*?)\\]; keys: \\[(.*?)\\];");
+        Matcher matcher = pattern.matcher(rangeInfo);
+
+        int index = 0;
+        while (matcher.find()) {
+            String dataType = matcher.group(1);
+            String keyValue = matcher.group(2);
+
+            Object currentValue = parseValue(dataType, keyValue);
+
+            if (index % 2 == 0) {
+                if (matcher.find()) {
+                    String upperType = matcher.group(1);
+                    String upperKeyValue = matcher.group(2);
+                    Object upperValue = parseValue(upperType, upperKeyValue);
+
+                    partitionInfo.add(new ColumnRangeInfo(dataType, currentValue, upperValue));
+                }
+            }
+            index++;
+        }
+
+        return partitionInfo;
     }
 
     public void loadTableDesc(String tableName) {
@@ -295,10 +362,10 @@ public class RandomDDLGenerator {
                 return generateAddColumn();
             case 1:
                 return generateDropColumn();
-            case 2:
-                return generateModifyColumn();
-            case 3:
-                return generateRenameColumn();
+            // case 2:
+            // return generateModifyColumn();
+            // case 3:
+            // return generateRenameColumn();
             case 4:
                 return generateAddPartition();
             case 5:
@@ -307,24 +374,26 @@ public class RandomDDLGenerator {
                 return generateReplacePartition();
             case 7:
                 return generateRenamePartition();
-            case 8:
-                return generateAddRollup();
-            case 9:
-                return generateDropRollup();
-            case 10:
-                return generateRenameRollup();
-            case 11:
-                return generateCreateIndex();
-            case 12:
-                return generateDropIndex();
-            case 13:
-                return generateBuildIndex();
-            case 16:
-                return generateCreateView();
-            case 17:
-                return generateDropView();
-            case 18:
-                return generateAlterView();
+            // case 8:
+            // return generateAddRollup();
+            // case 9:
+            // return generateDropRollup();
+            // case 10:
+            // return generateRenameRollup();
+            // case 11:
+            // return generateCreateIndex();
+            // case 12:
+            // return generateDropIndex();
+            // case 13:
+            // return generateBuildIndex();
+            // case 16:
+            // return generateCreateView();
+            // case 17:
+            // return generateDropView();
+            // case 18:
+            // return generateAlterView();
+            case 19:
+                return generateInsertInto();
             // case 19:
             // return generateCreateMaterializedView();
             // case 20:
@@ -332,6 +401,192 @@ public class RandomDDLGenerator {
             default:
                 return "";
         }
+    }
+
+    public String generateInsertInto() {
+        String tableName = generateTableName();
+
+        // Load table information
+        loadTableDesc(tableName);
+        loadTableIsRangePartition(tableName);
+        loadTablePartitionInfos(tableName);
+
+        // If no table info is available, return empty string
+        if (!tableInfo.containsKey(tableName) || tableInfo.get(tableName) == null ||
+                tableInfo.get(tableName).isEmpty()) {
+            return "";
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("INSERT INTO ");
+        sb.append(tableName);
+
+        List<ColumnSchema> columns = tableInfo.get(tableName).stream()
+                .filter(c -> c.IndexName.equals(tableName))
+                .flatMap(c -> c.columnSchema.stream())
+                .collect(Collectors.toList());
+
+        if (columns.isEmpty()) {
+            return "";
+        }
+
+        sb.append(" (");
+        sb.append(columns.stream()
+                .map(c -> c.field)
+                .collect(Collectors.joining(", ")));
+        sb.append(") VALUES ");
+
+        int rowCount = 1 + random.nextInt(3);
+        for (int i = 0; i < rowCount; i++) {
+            if (i > 0) {
+                sb.append(", ");
+            }
+
+            sb.append("(");
+
+            for (int j = 0; j < columns.size(); j++) {
+                if (j > 0) {
+                    sb.append(", ");
+                }
+
+                ColumnSchema column = columns.get(j);
+                boolean isPartitionColumn = false;
+
+                if (!partitionColumns.isEmpty() && partitionColumns.contains(column.field)) {
+                    isPartitionColumn = true;
+                }
+
+                String value = generateValueForColumn(column, tableName, isPartitionColumn);
+                sb.append(value);
+            }
+
+            sb.append(")");
+        }
+
+        sb.append(";");
+        return sb.toString();
+    }
+
+    private String generateValueForColumn(ColumnSchema column, String tableName, boolean isPartitionColumn) {
+        String type = column.type.toUpperCase();
+        boolean isNull = "YES".equals(column.isNull);
+
+        if (isNull && !isPartitionColumn && random.nextInt(10) == 0) {
+            return "NULL";
+        }
+
+        if (isPartitionColumn && PartitionTypeInfo.containsKey(tableName)) {
+            PartitionType partType = PartitionTypeInfo.get(tableName);
+
+            if (partType == PartitionType.RANGE || partType == PartitionType.LIST) {
+                return generatePartitionCompliantValue(column, tableName, partType);
+            }
+        }
+
+        if (type.contains("INT") || type.equals("BIGINT") || type.equals("LARGEINT") ||
+                type.equals("TINYINT") || type.equals("SMALLINT")) {
+            return String.valueOf(random.nextInt(1000));
+        } else if (type.contains("DECIMAL") || type.contains("DOUBLE") || type.contains("FLOAT")) {
+            return String.format("%.2f", random.nextDouble() * 1000);
+        } else if (type.equals("BOOLEAN")) {
+            return random.nextBoolean() ? "TRUE" : "FALSE";
+        } else if (type.equals("DATE")) {
+            return String.format("'%d-%02d-%02d'",
+                    2020 + random.nextInt(5),
+                    1 + random.nextInt(12),
+                    1 + random.nextInt(28));
+        } else if (type.equals("DATETIME")) {
+            return String.format("'%d-%02d-%02d %02d:%02d:%02d'",
+                    2020 + random.nextInt(5),
+                    1 + random.nextInt(12),
+                    1 + random.nextInt(28),
+                    random.nextInt(24),
+                    random.nextInt(60),
+                    random.nextInt(60));
+        } else if (type.contains("CHAR") || type.contains("VARCHAR")) {
+            String[] sampleValues = { "'value1'", "'test data'", "'sample'", "'doris'", "'apache'" };
+            return sampleValues[random.nextInt(sampleValues.length)];
+        } else {
+            return "'default'";
+        }
+    }
+
+    private String generatePartitionCompliantValue(ColumnSchema column, String tableName, PartitionType partType) {
+        String type = column.type.toUpperCase();
+
+        if (partitionNames.isEmpty()) {
+            return generateValueForColumn(column, tableName, false);
+        }
+
+        if (partType == PartitionType.RANGE) {
+            if (!partitionRanges.isEmpty()) {
+                List<ColumnRangeInfo> rangeInfo = partitionRanges.get(random.nextInt(partitionRanges.size()));
+
+                if (!rangeInfo.isEmpty()) {
+                    ColumnRangeInfo range = rangeInfo.get(0);
+
+                    if (type.contains("INT") || type.equals("BIGINT") || type.equals("TINYINT") ||
+                            type.equals("SMALLINT") || type.equals("LARGEINT")) {
+                        long lowerBound = 0;
+                        long upperBound = 100000;
+
+                        try {
+                            if (range.getLowerBound() instanceof Number) {
+                                lowerBound = ((Number) range.getLowerBound()).longValue();
+                            } else if (range.getLowerBound() instanceof String) {
+                                lowerBound = Long.parseLong(range.getLowerBound().toString());
+                            }
+
+                            if (range.getUpperBound() instanceof Number) {
+                                upperBound = ((Number) range.getUpperBound()).longValue();
+                            } else if (range.getUpperBound() instanceof String) {
+                                upperBound = Long.parseLong(range.getUpperBound().toString());
+                            }
+                        } catch (Exception e) {
+                        }
+
+                        long value = lowerBound;
+                        if (upperBound > lowerBound) {
+                            value = lowerBound + random.nextInt((int) (upperBound - lowerBound));
+                        }
+                        return String.valueOf(value);
+                    } else if (type.equals("DATE") || type.equals("DATETIME")) {
+                        return type.equals("DATE")
+                                ? String.format("'%d-%02d-%02d'",
+                                        2020 + random.nextInt(5),
+                                        1 + random.nextInt(12),
+                                        1 + random.nextInt(28))
+                                : String.format("'%d-%02d-%02d %02d:%02d:%02d'",
+                                        2020 + random.nextInt(5),
+                                        1 + random.nextInt(12),
+                                        1 + random.nextInt(28),
+                                        random.nextInt(24),
+                                        random.nextInt(60),
+                                        random.nextInt(60));
+                    }
+                }
+            }
+        } else if (partType == PartitionType.LIST) {
+            if (type.equals("BOOLEAN")) {
+                return random.nextBoolean() ? "TRUE" : "FALSE";
+            } else if (type.contains("INT") || type.equals("BIGINT") || type.equals("TINYINT") ||
+                    type.equals("SMALLINT") || type.equals("LARGEINT")) {
+                return String.valueOf(random.nextInt(5)); // Small set of values for LIST
+            } else if (type.equals("DATE")) {
+                int year = 2020 + random.nextInt(5);
+                int month = 1 + random.nextInt(12);
+                return String.format("'%d-%02d-01'", year, month); // First day of random months
+            } else if (type.equals("DATETIME")) {
+                int year = 2020 + random.nextInt(5);
+                int month = 1 + random.nextInt(12);
+                return String.format("'%d-%02d-01 00:00:00'", year, month); // Midnight of first day
+            } else if (type.contains("CHAR") || type.contains("VARCHAR")) {
+                String[] cities = { "'Beijing'", "'Shanghai'", "'Guangzhou'", "'Shenzhen'", "'Hangzhou'" };
+                return cities[random.nextInt(cities.length)];
+            }
+        }
+
+        return generateValueForColumn(column, tableName, false);
     }
 
     private String generateAddColumn() {
@@ -409,7 +664,7 @@ public class RandomDDLGenerator {
     private String generateDropPartition() {
         StringBuilder sb = new StringBuilder();
         String tableName = generateTableName();
-        loadTablePartitionNames(tableName);
+        loadTablePartitionInfos(tableName);
         if (partitionNames.isEmpty()) {
             return "";
         }
@@ -735,7 +990,7 @@ public class RandomDDLGenerator {
     private String generateReplacePartition() {
         StringBuilder sb = new StringBuilder();
         String tableName = generateTableName();
-        loadTablePartitionNames(tableName);
+        loadTablePartitionInfos(tableName);
 
         if (partitionNames.isEmpty()) {
             return "";
@@ -759,7 +1014,7 @@ public class RandomDDLGenerator {
     private String generateRenamePartition() {
         StringBuilder sb = new StringBuilder();
         String tableName = generateTableName();
-        loadTablePartitionNames(tableName);
+        loadTablePartitionInfos(tableName);
 
         if (partitionNames.isEmpty()) {
             return "";
@@ -874,7 +1129,7 @@ public class RandomDDLGenerator {
         StringBuilder sb = new StringBuilder();
         String tableName = generateTableName();
         loadIndexNames(tableName);
-        loadTablePartitionNames(tableName);
+        loadTablePartitionInfos(tableName);
 
         if (indexNames.isEmpty()) {
             return "";
