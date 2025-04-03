@@ -1,11 +1,13 @@
 package com.doris.rand.generator;
 
 public class ColumnRangeInfo {
+    private String partitionKey;
     private String dataType;
     private Object lowerBound;
     private Object upperBound;
 
-    public ColumnRangeInfo(String dataType, Object lowerBound, Object upperBound) {
+    public ColumnRangeInfo(String partitionKey, String dataType, Object lowerBound, Object upperBound) {
+        this.partitionKey = partitionKey;
         this.dataType = dataType;
         this.lowerBound = lowerBound;
         this.upperBound = upperBound;
@@ -15,20 +17,15 @@ public class ColumnRangeInfo {
         return dataType;
     }
 
+    public String getPartitionKey() {
+        return partitionKey;
+    }
+
     public Object getLowerBound() {
         return lowerBound;
     }
 
     public Object getUpperBound() {
         return upperBound;
-    }
-
-    @Override
-    public String toString() {
-        return "ColumnRangeInfo{" +
-                "dataType='" + dataType + '\'' +
-                ", lowerBound=" + lowerBound +
-                ", upperBound=" + upperBound +
-                '}';
     }
 }

@@ -28,7 +28,7 @@ public class RandomDDLGenerator {
     private List<String> partitions = new ArrayList<>();
     private List<String> rollupNames = new ArrayList<>();
     private List<String> partitionNames = new ArrayList<>();
-    private List<List<ColumnRangeInfo>> partitionRanges = new ArrayList<>();
+    private List<ColumnRangeInfo> partitionRanges = new ArrayList<>();
     // Add these as class fields
     private List<String> partitionColumns = new ArrayList<>();
     private List<String> partitionTypes = new ArrayList<>();
@@ -146,6 +146,9 @@ public class RandomDDLGenerator {
     }
 
     public void loadTablePartitionInfos(String tableName) {
+        partitionNames.clear();
+        partitionRanges.clear();
+
         String host = DBConfig.getHost();
         String port = DBConfig.getPort();
         String user = DBConfig.getUser();
@@ -161,12 +164,49 @@ public class RandomDDLGenerator {
                 while (rs.next()) {
                     String partitionName = rs.getString("PartitionName");
                     partitionNames.add(partitionName);
-                    partitionRanges.add(parseRangePartition(partitionName, rs.getString("Range")));
+
+                    try {
+                        String rangeInfo = rs.getString("Range");
+                        String partitionKey = rs.getString("PartitionKey");
+
+                        if (rangeInfo != null && partitionKey != null) {
+                            Pattern pattern = Pattern.compile("types: \\[(.*?)\\]; keys: \\[(.*?)\\];");
+                            Matcher matcher = pattern.matcher(rangeInfo);
+
+                            if (matcher.find()) {
+                                String lowerType = matcher.group(1);
+                                String lowerKeyValue = matcher.group(2);
+                                Object lowerValue = parseValue(lowerType, lowerKeyValue);
+
+                                if (matcher.find()) {
+                                    String upperType = matcher.group(1);
+                                    String upperKeyValue = matcher.group(2);
+                                    Object upperValue = parseValue(upperType, upperKeyValue);
+
+                                    ColumnRangeInfo partitionInfo = new ColumnRangeInfo(
+                                            partitionKey, lowerType, lowerValue, upperValue);
+                                    partitionRanges.add(partitionInfo);
+                                    System.out.println("Partition Name: " + partitionName +
+                                            ", Partition Key: " + partitionKey +
+                                            ", Lower Bound: " + lowerValue +
+                                            ", Upper Bound: " + (upperValue != null ? upperValue : "NULL"));
+                                } else {
+                                    ColumnRangeInfo partitionInfo = new ColumnRangeInfo(
+                                            partitionKey, lowerType, lowerValue, null);
+                                    partitionRanges.add(partitionInfo);
+                                }
+
+                            }
+                        }
+                    } catch (Exception e) {
+                        System.err.println("Error parsing partition range info: " + e.getMessage());
+                    }
                 }
             }
         } catch (SQLException e) {
-            System.err.println("Error loading table names: " + e.getMessage());
-            tableNames.clear();
+            System.err.println("Error loading partition info: " + e.getMessage());
+            partitionNames.clear();
+            partitionRanges.clear();
         }
     }
 
@@ -207,33 +247,6 @@ public class RandomDDLGenerator {
         }
     }
 
-    public static List<ColumnRangeInfo> parseRangePartition(String partitionName, String rangeInfo) {
-        List<ColumnRangeInfo> partitionInfo = new ArrayList<>();
-
-        Pattern pattern = Pattern.compile("types: \\[(.*?)\\]; keys: \\[(.*?)\\];");
-        Matcher matcher = pattern.matcher(rangeInfo);
-
-        int index = 0;
-        while (matcher.find()) {
-            String dataType = matcher.group(1);
-            String keyValue = matcher.group(2);
-
-            Object currentValue = parseValue(dataType, keyValue);
-
-            if (index % 2 == 0) {
-                if (matcher.find()) {
-                    String upperType = matcher.group(1);
-                    String upperKeyValue = matcher.group(2);
-                    Object upperValue = parseValue(upperType, upperKeyValue);
-
-                    partitionInfo.add(new ColumnRangeInfo(dataType, currentValue, upperValue));
-                }
-            }
-            index++;
-        }
-
-        return partitionInfo;
-    }
 
     public void loadTableDesc(String tableName) {
         String host = DBConfig.getHost();
@@ -356,7 +369,7 @@ public class RandomDDLGenerator {
     }
 
     public String generateDDL() {
-        int choice = random.nextInt(18);
+        int choice = random.nextInt(9);
         switch (choice) {
             case 0:
                 return generateAddColumn();
@@ -370,10 +383,12 @@ public class RandomDDLGenerator {
                 return generateAddPartition();
             case 5:
                 return generateDropPartition();
-            case 6:
-                return generateReplacePartition();
-            case 7:
-                return generateRenamePartition();
+            // case 6:
+            // return generateReplacePartition();
+            // case 7:
+            // return generateRenamePartition();
+            case 8:
+                return generateInsertInto();
             // case 8:
             // return generateAddRollup();
             // case 9:
@@ -392,8 +407,8 @@ public class RandomDDLGenerator {
             // return generateDropView();
             // case 18:
             // return generateAlterView();
-            case 19:
-                return generateInsertInto();
+            // case 19:
+            // return generateInsertInto();
             // case 19:
             // return generateCreateMaterializedView();
             // case 20:
@@ -403,85 +418,261 @@ public class RandomDDLGenerator {
         }
     }
 
-    public String generateInsertInto() {
-        String tableName = generateTableName();
+private Map<String, List<Object>> listPartitionValues = new HashMap<>();
 
-        // Load table information
-        loadTableDesc(tableName);
-        loadTableIsRangePartition(tableName);
-        loadTablePartitionInfos(tableName);
+// Add this method to load LIST partition values
+private void loadListPartitionValues(String tableName) {
+    listPartitionValues.clear();
+    
+    String host = DBConfig.getHost();
+    String port = DBConfig.getPort();
+    String user = DBConfig.getUser();
+    String password = DBConfig.getPassword();
+    String database = DBConfig.getDatabase();
+    String url = String.format("jdbc:mysql://%s:%s/%s", host, port, database);
 
-        // If no table info is available, return empty string
-        if (!tableInfo.containsKey(tableName) || tableInfo.get(tableName) == null ||
-                tableInfo.get(tableName).isEmpty()) {
-            return "";
-        }
-
-        StringBuilder sb = new StringBuilder();
-        sb.append("INSERT INTO ");
-        sb.append(tableName);
-
-        List<ColumnSchema> columns = tableInfo.get(tableName).stream()
-                .filter(c -> c.IndexName.equals(tableName))
-                .flatMap(c -> c.columnSchema.stream())
-                .collect(Collectors.toList());
-
-        if (columns.isEmpty()) {
-            return "";
-        }
-
-        sb.append(" (");
-        sb.append(columns.stream()
-                .map(c -> c.field)
-                .collect(Collectors.joining(", ")));
-        sb.append(") VALUES ");
-
-        int rowCount = 1 + random.nextInt(3);
-        for (int i = 0; i < rowCount; i++) {
-            if (i > 0) {
-                sb.append(", ");
-            }
-
-            sb.append("(");
-
-            for (int j = 0; j < columns.size(); j++) {
-                if (j > 0) {
-                    sb.append(", ");
+    try (Connection conn = DriverManager.getConnection(url, user, password)) {
+        String sql = "SHOW CREATE TABLE " + tableName;
+        try (Statement stmt = conn.createStatement();
+                ResultSet rs = stmt.executeQuery(sql)) {
+            
+            if (rs.next()) {
+                String createTable = rs.getString(2);
+                
+                // Extract LIST partition values
+                Pattern listPattern = Pattern.compile("PARTITION\\s+([\\w_]+)\\s+VALUES\\s+IN\\s+\\(\\((.+?)\\)\\)", 
+                        Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+                Matcher listMatcher = listPattern.matcher(createTable);
+                
+                while (listMatcher.find()) {
+                    String partitionValues = listMatcher.group(2);
+                    
+                    // Split values by comma if multiple values or columns
+                    String[] valueItems = partitionValues.split(",");
+                    
+                    for (int i = 0; i < Math.min(valueItems.length, partitionColumns.size()); i++) {
+                        String partitionKey = partitionColumns.get(i);
+                        String dataType = "VARCHAR"; // Default assumption
+                        
+                        // Try to determine the data type
+                        if (i < partitionTypes.size()) {
+                            dataType = partitionTypes.get(i);
+                        }
+                        
+                        // Clean the value and parse it
+                        String cleanValue = valueItems[i].trim();
+                        if (cleanValue.startsWith("\"") && cleanValue.endsWith("\"")) {
+                            cleanValue = cleanValue.substring(1, cleanValue.length() - 1);
+                        }
+                        
+                        Object parsedValue = parseValue(dataType, cleanValue);
+                        
+                        // Add to the list partition values map
+                        if (!listPartitionValues.containsKey(partitionKey)) {
+                            listPartitionValues.put(partitionKey, new ArrayList<>());
+                        }
+                        listPartitionValues.get(partitionKey).add(parsedValue);
+                        
+                        System.out.println("LIST Partition Value - Key: " + partitionKey + 
+                                ", Type: " + dataType + ", Value: " + parsedValue);
+                    }
                 }
-
-                ColumnSchema column = columns.get(j);
-                boolean isPartitionColumn = false;
-
-                if (!partitionColumns.isEmpty() && partitionColumns.contains(column.field)) {
-                    isPartitionColumn = true;
-                }
-
-                String value = generateValueForColumn(column, tableName, isPartitionColumn);
-                sb.append(value);
             }
-
-            sb.append(")");
         }
+    } catch (SQLException e) {
+        System.err.println("Error loading LIST partition values: " + e.getMessage());
+        listPartitionValues.clear();
+    }
+}
 
-        sb.append(";");
-        return sb.toString();
+public String generateInsertInto() {
+    String tableName = generateTableName();
+    
+    loadTableDesc(tableName);
+    loadTableIsRangePartition(tableName);
+    loadPartitioInfoFromTable(tableName);
+    loadTablePartitionInfos(tableName);
+    
+    if (PartitionTypeInfo.containsKey(tableName) && 
+            PartitionTypeInfo.get(tableName) == PartitionType.LIST) {
+        loadListPartitionValues(tableName);
     }
 
-    private String generateValueForColumn(ColumnSchema column, String tableName, boolean isPartitionColumn) {
-        String type = column.type.toUpperCase();
-        boolean isNull = "YES".equals(column.isNull);
+    if (!tableInfo.containsKey(tableName) || tableInfo.get(tableName) == null ||
+            tableInfo.get(tableName).isEmpty()) {
+        return "";
+    }
 
-        if (isNull && !isPartitionColumn && random.nextInt(10) == 0) {
-            return "NULL";
+    StringBuilder sb = new StringBuilder();
+    sb.append("INSERT INTO ");
+    sb.append(tableName);
+
+    List<ColumnSchema> columns = tableInfo.get(tableName).stream()
+            .filter(c -> c.IndexName.equals(tableName))
+            .flatMap(c -> c.columnSchema.stream())
+            .collect(Collectors.toList());
+
+    if (columns.isEmpty()) {
+        return "";
+    }
+
+    sb.append(" (");
+    sb.append(columns.stream()
+            .map(c -> c.field)
+            .collect(Collectors.joining(", ")));
+    sb.append(") VALUES ");
+
+    int rowCount = 1 + random.nextInt(3);
+    for (int i = 0; i < rowCount; i++) {
+        if (i > 0) {
+            sb.append(", ");
         }
-
-        if (isPartitionColumn && PartitionTypeInfo.containsKey(tableName)) {
-            PartitionType partType = PartitionTypeInfo.get(tableName);
-
-            if (partType == PartitionType.RANGE || partType == PartitionType.LIST) {
-                return generatePartitionCompliantValue(column, tableName, partType);
+        
+        sb.append("(");
+        
+        for (int j = 0; j < columns.size(); j++) {
+            if (j > 0) {
+                sb.append(", ");
             }
+            
+            ColumnSchema column = columns.get(j);
+            boolean isPartitionColumn = false;
+            
+            if (!partitionColumns.isEmpty() && partitionColumns.contains(column.field)) {
+                isPartitionColumn = true;
+            }
+            
+            sb.append(generateValueForColumn(column, tableName, isPartitionColumn));
         }
+        
+        sb.append(")");
+    }
+    
+    sb.append(";");
+    return sb.toString();
+}
+
+private String generateValueWithinRange(ColumnRangeInfo range, String type) {
+    type = type.toUpperCase();
+    Object lowerBound = range.getLowerBound();
+    Object upperBound = range.getUpperBound();
+    
+    if (lowerBound == null && upperBound == null) {
+        return generateGenericValue(type);
+    }
+    
+    try {
+        if (type.contains("INT") || type.equals("BIGINT") || type.equals("LARGEINT") ||
+                type.equals("TINYINT") || type.equals("SMALLINT")) {
+            long lower = lowerBound != null ? Long.parseLong(lowerBound.toString()) : 0;
+            long upper = upperBound != null ? Long.parseLong(upperBound.toString()) : Long.MAX_VALUE;
+            
+            if (upper <= lower) {
+                upper = lower + 100;
+            }
+            
+            return String.valueOf(lower + random.nextInt((int)Math.min(upper - lower, 1000)));
+            
+        } else if (type.equals("DATE")) {
+            return String.format("'%d-%02d-%02d'", 
+                    2020 + random.nextInt(5), 
+                    1 + random.nextInt(12), 
+                    1 + random.nextInt(28));
+            
+        } else if (type.equals("DATETIME")) {
+            return String.format("'%d-%02d-%02d %02d:%02d:%02d'", 
+                    2020 + random.nextInt(5), 
+                    1 + random.nextInt(12), 
+                    1 + random.nextInt(28),
+                    random.nextInt(24),
+                    random.nextInt(60),
+                    random.nextInt(60));
+        }
+    } catch (Exception e) {
+    }
+    
+    return generateGenericValue(type);
+}
+
+private String generateValueForColumn(ColumnSchema column, String tableName, boolean isPartitionColumn) {
+    String type = column.type.toUpperCase();
+    boolean isNull = "YES".equalsIgnoreCase(column.isNull);
+    
+    if (isNull && !isPartitionColumn && random.nextInt(10) == 0) {
+        return "NULL";
+    }
+    
+    if (isPartitionColumn && PartitionTypeInfo.containsKey(tableName)) {
+        PartitionType partType = PartitionTypeInfo.get(tableName);
+        
+        if (partType == PartitionType.RANGE) {
+            for (ColumnRangeInfo range : partitionRanges) {
+                if (range.getPartitionKey().equals(column.field)) {
+                    return generateValueWithinRange(range, type);
+                }
+            }
+        } else if (partType == PartitionType.LIST) {
+            if (listPartitionValues.containsKey(column.field) && 
+                !listPartitionValues.get(column.field).isEmpty()) {
+                
+                Object value = listPartitionValues.get(column.field)
+                    .get(random.nextInt(listPartitionValues.get(column.field).size()));
+                
+                if (type.contains("INT") || type.equals("BIGINT") || type.equals("LARGEINT") ||
+                        type.equals("TINYINT") || type.equals("SMALLINT")) {
+                    return value.toString();
+                } else if (type.equals("BOOLEAN")) {
+                    return value.toString().toUpperCase();
+                } else if (type.contains("CHAR") || type.contains("VARCHAR") ||
+                           type.equals("DATE") || type.equals("DATETIME")) {
+                    return "'" + value.toString() + "'";
+                }
+                return value.toString();
+            }
+            
+            return generateListCompatibleValue(type);
+        }
+    }
+    
+    return generateGenericValue(type);
+}
+
+private String generateListCompatibleValue(String type) {
+    type = type.toUpperCase();
+    
+    if (type.equals("BOOLEAN")) {
+        return random.nextBoolean() ? "TRUE" : "FALSE";
+    } else if (type.contains("INT") || type.equals("BIGINT") || type.equals("LARGEINT") ||
+            type.equals("TINYINT") || type.equals("SMALLINT")) {
+        // For list partitions, usually a small set of distinct values
+        int[] commonValues = {0, 1, 2, 3, 4, 5, 10, 100};
+        return String.valueOf(commonValues[random.nextInt(commonValues.length)]);
+    } else if (type.equals("DATE")) {
+        // Common date values for list partitions (e.g., first day of months)
+        int year = 2020 + random.nextInt(5);
+        int month = 1 + random.nextInt(12);
+        return String.format("'%d-%02d-01'", year, month);
+    } else if (type.equals("DATETIME")) {
+        int year = 2020 + random.nextInt(5);
+        int month = 1 + random.nextInt(12);
+        return String.format("'%d-%02d-01 00:00:00'", year, month);
+    } else if (type.contains("CHAR") || type.contains("VARCHAR")) {
+        // Categories often used in LIST partitions
+        String[][] categorySet = {
+            {"'North'", "'South'", "'East'", "'West'", "'Central'"},
+            {"'Beijing'", "'Shanghai'", "'Guangzhou'", "'Shenzhen'", "'Hangzhou'"},
+            {"'Electronics'", "'Clothing'", "'Food'", "'Books'", "'Furniture'"}
+        };
+        
+        String[] chosenSet = categorySet[random.nextInt(categorySet.length)];
+        return chosenSet[random.nextInt(chosenSet.length)];
+    }
+    
+    return generateGenericValue(type);
+}
+
+    private String generateGenericValue(String type) {
+                type = type.toUpperCase();
 
         if (type.contains("INT") || type.equals("BIGINT") || type.equals("LARGEINT") ||
                 type.equals("TINYINT") || type.equals("SMALLINT")) {
@@ -504,89 +695,12 @@ public class RandomDDLGenerator {
                     random.nextInt(60),
                     random.nextInt(60));
         } else if (type.contains("CHAR") || type.contains("VARCHAR")) {
-            String[] sampleValues = { "'value1'", "'test data'", "'sample'", "'doris'", "'apache'" };
-            return sampleValues[random.nextInt(sampleValues.length)];
+            String[] words = { "'data'", "'test'", "'sample'", "'doris'", "'apache'",
+                    "'database'", "'bigdata'", "'analytics'", "'query'", "'sql'" };
+            return words[random.nextInt(words.length)];
         } else {
-            return "'default'";
+            return "'default_value'";
         }
-    }
-
-    private String generatePartitionCompliantValue(ColumnSchema column, String tableName, PartitionType partType) {
-        String type = column.type.toUpperCase();
-
-        if (partitionNames.isEmpty()) {
-            return generateValueForColumn(column, tableName, false);
-        }
-
-        if (partType == PartitionType.RANGE) {
-            if (!partitionRanges.isEmpty()) {
-                List<ColumnRangeInfo> rangeInfo = partitionRanges.get(random.nextInt(partitionRanges.size()));
-
-                if (!rangeInfo.isEmpty()) {
-                    ColumnRangeInfo range = rangeInfo.get(0);
-
-                    if (type.contains("INT") || type.equals("BIGINT") || type.equals("TINYINT") ||
-                            type.equals("SMALLINT") || type.equals("LARGEINT")) {
-                        long lowerBound = 0;
-                        long upperBound = 100000;
-
-                        try {
-                            if (range.getLowerBound() instanceof Number) {
-                                lowerBound = ((Number) range.getLowerBound()).longValue();
-                            } else if (range.getLowerBound() instanceof String) {
-                                lowerBound = Long.parseLong(range.getLowerBound().toString());
-                            }
-
-                            if (range.getUpperBound() instanceof Number) {
-                                upperBound = ((Number) range.getUpperBound()).longValue();
-                            } else if (range.getUpperBound() instanceof String) {
-                                upperBound = Long.parseLong(range.getUpperBound().toString());
-                            }
-                        } catch (Exception e) {
-                        }
-
-                        long value = lowerBound;
-                        if (upperBound > lowerBound) {
-                            value = lowerBound + random.nextInt((int) (upperBound - lowerBound));
-                        }
-                        return String.valueOf(value);
-                    } else if (type.equals("DATE") || type.equals("DATETIME")) {
-                        return type.equals("DATE")
-                                ? String.format("'%d-%02d-%02d'",
-                                        2020 + random.nextInt(5),
-                                        1 + random.nextInt(12),
-                                        1 + random.nextInt(28))
-                                : String.format("'%d-%02d-%02d %02d:%02d:%02d'",
-                                        2020 + random.nextInt(5),
-                                        1 + random.nextInt(12),
-                                        1 + random.nextInt(28),
-                                        random.nextInt(24),
-                                        random.nextInt(60),
-                                        random.nextInt(60));
-                    }
-                }
-            }
-        } else if (partType == PartitionType.LIST) {
-            if (type.equals("BOOLEAN")) {
-                return random.nextBoolean() ? "TRUE" : "FALSE";
-            } else if (type.contains("INT") || type.equals("BIGINT") || type.equals("TINYINT") ||
-                    type.equals("SMALLINT") || type.equals("LARGEINT")) {
-                return String.valueOf(random.nextInt(5)); // Small set of values for LIST
-            } else if (type.equals("DATE")) {
-                int year = 2020 + random.nextInt(5);
-                int month = 1 + random.nextInt(12);
-                return String.format("'%d-%02d-01'", year, month); // First day of random months
-            } else if (type.equals("DATETIME")) {
-                int year = 2020 + random.nextInt(5);
-                int month = 1 + random.nextInt(12);
-                return String.format("'%d-%02d-01 00:00:00'", year, month); // Midnight of first day
-            } else if (type.contains("CHAR") || type.contains("VARCHAR")) {
-                String[] cities = { "'Beijing'", "'Shanghai'", "'Guangzhou'", "'Shenzhen'", "'Hangzhou'" };
-                return cities[random.nextInt(cities.length)];
-            }
-        }
-
-        return generateValueForColumn(column, tableName, false);
     }
 
     private String generateAddColumn() {
@@ -631,11 +745,15 @@ public class RandomDDLGenerator {
     private String generateDropColumn() {
         StringBuilder sb = new StringBuilder();
         String tableName = generateTableName();
+        String columnName = generateColumnName(tableName);
+        if (columnName.isEmpty()) {
+            return "";
+        }
 
         sb.append("ALTER TABLE ");
         sb.append(tableName);
         sb.append(" DROP COLUMN ");
-        sb.append(generateColumnName(tableName));
+        sb.append(columnName);
         sb.append(";");
         return sb.toString();
     }
@@ -911,6 +1029,7 @@ public class RandomDDLGenerator {
             case "BIGINT":
             case "TINYINT":
             case "SMALLINT":
+                return String.valueOf(random.nextInt(1000));
             case "LARGEINT":
                 return String.valueOf(random.nextLong());
             case "DATE":
