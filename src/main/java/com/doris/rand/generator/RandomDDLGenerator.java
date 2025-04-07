@@ -427,47 +427,46 @@ public class RandomDDLGenerator {
     }
 
     public String generateDDL() {
-        // int choice = random.nextInt(9);
-        int choice = 8;
+        int choice = random.nextInt(20);
         switch (choice) {
-            // case 0:
-            // return generateAddColumn();
-            // case 1:
-            // return generateDropColumn();
-            // case 2:
-            // return generateModifyColumn();
-            // case 3:
-            // return generateRenameColumn();
-            // case 4:
-            // return generateAddPartition();
-            // case 5:
-            // return generateDropPartition();
-            // case 6:
-            // return generateReplacePartition();
-            // case 7:
-            // return generateRenamePartition();
+            case 0:
+                return generateAddColumn();
+            case 1:
+                return generateDropColumn();
+            case 2:
+                return generateModifyColumn();
+            case 3:
+                return generateRenameColumn();
+            case 4:
+                return generateAddPartition();
+            case 5:
+                return generateDropPartition();
+            case 6:
+                return generateReplacePartition();
+            case 7:
+                return generateRenamePartition();
             case 8:
+                return generateAddRollup();
+            case 9:
+                return generateDropRollup();
+            case 10:
+                return generateRenameRollup();
+            case 11:
+                return generateCreateIndex();
+            case 12:
+                return generateDropIndex();
+            case 13:
+                return generateBuildIndex();
+            case 16:
+                return generateCreateView();
+            case 17:
+                return generateDropView();
+            case 18:
+                return generateAlterView();
+            case 19:
                 return generateInsertInto();
-            // case 8:
-            // return generateAddRollup();
-            // case 9:
-            // return generateDropRollup();
-            // case 10:
-            // return generateRenameRollup();
-            // case 11:
-            // return generateCreateIndex();
-            // case 12:
-            // return generateDropIndex();
-            // case 13:
-            // return generateBuildIndex();
-            // case 16:
-            // return generateCreateView();
-            // case 17:
-            // return generateDropView();
-            // case 18:
-            // return generateAlterView();
-            // case 19:
-            // return generateInsertInto();
+            case 20:
+                return generateInsertInto();
             // case 19:
             // return generateCreateMaterializedView();
             // case 20:
