@@ -426,7 +426,7 @@ public class RandomDDLGenerator {
         return tableNames.get(random.nextInt(tableNames.size()));
     }
 
-    public String generateDDL() {
+    public String generateSchemaChangeDDL() {
         int choice = random.nextInt(20);
         switch (choice) {
             case 0:
@@ -451,32 +451,28 @@ public class RandomDDLGenerator {
                 return generateDropRollup();
             case 10:
                 return generateRenameRollup();
-            case 11:
-                return generateCreateIndex();
-            case 12:
-                return generateDropIndex();
-            case 13:
-                return generateBuildIndex();
-            case 16:
+            // case 11:
+            // return generateCreateIndex();
+            // case 12:
+            // return generateDropIndex();
+            // case 13:
+            // return generateBuildIndex();
+            case 14:
                 return generateCreateView();
-            case 17:
+            case 15:
                 return generateDropView();
-            case 18:
+            case 16:
                 return generateAlterView();
-            case 19:
-                return generateInsertInto();
-            case 20:
-                return generateInsertInto();
-            // case 19:
+            // case 17:
             // return generateCreateMaterializedView();
-            // case 20:
+            // case 18:
             // return generateDropMaterializedView();
             default:
-                return "";
+                return generateAddColumn(); // Default to a simple schema change
         }
     }
 
-    private String generateInsertInto() {
+    public String generateInsertInto() {
         StringBuilder sb = new StringBuilder();
         String tableName = generateTableName();
         loadTableDesc(tableName);

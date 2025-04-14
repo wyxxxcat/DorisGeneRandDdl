@@ -38,4 +38,12 @@ public class DBConfig {
     public static int getRandCount() {
         return 200;
     }
+
+    public static int getRunInsertOps() {
+        return Integer.parseInt(props.getProperty("db.runInsertOps", "5000"));
+    }
+
+    public static int getInsertSleepMs() {
+        return Integer.parseInt(props.getProperty("db.insertSleepMs", "1"));
+    }
 }
