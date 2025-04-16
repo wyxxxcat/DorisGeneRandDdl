@@ -423,6 +423,10 @@ public class RandomDDLGenerator {
 
     private String generateTableName() {
         loadTableNames();
+        int size = tableNames.size();
+        if (size == 0) {
+            return "";
+        }
         return tableNames.get(random.nextInt(tableNames.size()));
     }
 
