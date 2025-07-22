@@ -37,7 +37,7 @@ public class InsertWorker implements Runnable {
         int totalAttempts = 0;
 
         try {
-            while (running.get() && (insertCount <= 0 || successCount < insertCount)) {
+            while (running.get() && successCount < insertCount) {
                 String insertStmt = generator.generateInsertInto();
                 if (insertStmt.isEmpty()) {
                     continue;

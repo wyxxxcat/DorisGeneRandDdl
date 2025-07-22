@@ -1,3 +1,4 @@
 target/
 *.log
-cofig.properties.env
+.idea
+.vscode
