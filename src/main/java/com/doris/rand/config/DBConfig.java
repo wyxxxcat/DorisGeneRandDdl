@@ -1,7 +1,6 @@
 package com.doris.rand.config;
 
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 
 public class DBConfig {
     private static Map<String, String> cmdArgs = new HashMap<>();
@@ -55,5 +54,9 @@ public class DBConfig {
 
     public static int getInsertSleepMs() {
         return Integer.parseInt(getValue("insert_sleep_ms", "1000"));
+    }
+
+    public static List<String> getDDLOptions() {
+        return Arrays.asList(getValue("ddl_options", "").split(","));
     }
 }

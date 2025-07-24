@@ -22,6 +22,38 @@ enum PartitionType {
     UNKOWN
 }
 
+enum DDLType {
+  ADD_COLUMN("ADD_COLUMN"),
+  DROP_COLUMN("DROP_COLUMN"),
+  MODIFY_COLUMN("MODIFY_COLUMN"),
+  RENAME_COLUMN("RENAME_COLUMN"),
+  ADD_PARTITION("ADD_PARTITION"),
+  DROP_PARTITION("DROP_PARTITION"),
+  REPLACE_PARTITION("REPLACE_PARTITION"),
+  RENAME_PARTITION("RENAME_PARTITION"),
+  ADD_ROLLUP("ADD_ROLLUP"),
+  DROP_ROLLUP("DROP_ROLLUP"),
+  RENAME_ROLLUP("RENAME_ROLLUP"),
+  CREATE_INDEX("CREATE_INDEX"),
+  DROP_INDEX("DROP_INDEX"),
+  BUILD_INDEX("BUILD_INDEX"),
+  CREATE_VIEW("CREATE_VIEW"),
+  DROP_VIEW("DROP_VIEW"),
+  ALTER_VIEW("ALTER_VIEW"),
+  CREATE_MATERIALIZED_VIEW("CREATE_MATERIALIZED_VIEW"),
+  DROP_MATERIALIZED_VIEW("DROP_MATERIALIZED_VIEW");
+
+  private final String type;
+
+  DDLType(String type) {
+    this.type = type;
+  }
+
+  public String getType() {
+    return type;
+  }
+}
+
 public class RandomDDLGenerator {
     private static final Random random = new Random();
     private List<String> tableNames = new ArrayList<>();
@@ -437,46 +469,54 @@ public class RandomDDLGenerator {
     }
 
     public String generateSchemaChangeDDL() {
-        int choice = random.nextInt(19);
-        switch (choice) {
-            case 0:
+        List<String> options = DBConfig.getDDLOptions();
+        if (options.isEmpty()) {
+          for (DDLType ddlType : DDLType.values()) {
+            options.add(ddlType.name());
+          }
+        }
+
+        String choice = options.get(random.nextInt(options.size()));
+        DDLType ddlType = DDLType.valueOf(choice);
+        switch (ddlType) {
+            case ADD_COLUMN:
                 return generateAddColumn();
-            case 1:
-                return generateDropColumn();
-            case 2:
-                return generateModifyColumn();
-            case 3:
-                return generateRenameColumn();
-            case 4:
-                return generateAddPartition();
-            case 5:
-                return generateDropPartition();
-            case 6:
+            case DROP_COLUMN:
+                  return generateDropColumn();
+            case MODIFY_COLUMN:
+                  return generateModifyColumn();
+            case RENAME_COLUMN:
+                  return generateRenameColumn();
+            case ADD_PARTITION:
+                  return generateAddPartition();
+            case DROP_PARTITION:
+                  return generateDropPartition();
+            case REPLACE_PARTITION:
                 return generateReplacePartition();
-            case 7:
-                return generateRenamePartition();
-            case 8:
-                return generateAddRollup();
-            case 9:
-                return generateDropRollup();
-            case 10:
-                return generateRenameRollup();
-            case 11:
-                return generateCreateIndex();
-            case 12:
-                return generateDropIndex();
-            case 13:
-                return generateBuildIndex();
-            case 14:
-                return generateCreateView();
-            case 15:
-                return generateDropView();
-            case 16:
-                return generateAlterView();
-            case 17:
-                return generateCreateMaterializedView();
-            case 18:
-                return generateDropMaterializedView();
+            case RENAME_PARTITION:
+                  return generateRenamePartition();
+            case ADD_ROLLUP:
+                  return generateAddRollup();
+            case DROP_ROLLUP:
+                  return generateDropRollup();
+            case RENAME_ROLLUP:
+                  return generateRenameRollup();
+            case CREATE_INDEX:
+                  return generateCreateIndex();
+            case DROP_INDEX:
+                  return generateDropIndex();
+            case BUILD_INDEX:
+                  return generateBuildIndex();
+            case CREATE_VIEW:
+                  return generateCreateView();
+            case DROP_VIEW:
+                  return generateDropView();
+            case ALTER_VIEW:
+                  return generateAlterView();
+            case CREATE_MATERIALIZED_VIEW:
+                  return generateCreateMaterializedView();
+            case DROP_MATERIALIZED_VIEW:
+                  return generateDropMaterializedView();
             default:
                 return generateAddColumn(); // Default to a simple schema change
         }
